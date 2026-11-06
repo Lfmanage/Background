@@ -174,6 +174,11 @@ body.playing .eq i{animation:eq .9s ease-in-out infinite}
 .rc::-webkit-scrollbar{display:none}
 .rc button{flex:none;max-width:200px;height:44px;padding:0 16px;border-radius:22px;border:1px solid rgba(244,180,95,.4);background:rgba(232,130,58,.12);color:var(--acc2);font-size:14px;font-weight:600;font-family:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .res{cursor:pointer}
+.chhead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 2px 0}
+#nxChName{font-family:var(--serif);font-size:18px;min-width:0}
+.favb{flex:none;height:44px;padding:0 14px;border-radius:22px;border:1px solid rgba(244,180,95,.5);background:transparent;color:var(--acc2);font-size:13.5px;font-weight:700;font-family:inherit}
+.favb[aria-pressed=true]{background:rgba(232,130,58,.2)}
+#favs button{border-color:rgba(244,180,95,.75);background:rgba(232,130,58,.22)}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -192,6 +197,8 @@ body.playing .eq i{animation:eq .9s ease-in-out infinite}
   <button type="button" class="sq" id="paste" aria-label="Coller un lien"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="6" y="5" width="12" height="16" rx="2"/><path d="M9 5V4h6v1"/></svg></button>
 </div>
 
+<div class="lab" id="favLab" hidden>Mes chaînes favorites</div>
+<div class="rc" id="favs" hidden></div>
 <div class="lab" id="rcLab" hidden>Tes dernières chaînes</div>
 <div class="rc" id="recent" hidden></div>
 
@@ -255,7 +262,7 @@ body.playing .eq i{animation:eq .9s ease-in-out infinite}
     <div id="nxRes"></div>
   </div>
   <div id="nxChan" hidden>
-    <div id="nxChName" style="font-family:var(--serif);font-size:18px;margin:6px 2px 0"></div>
+    <div class="chhead"><span id="nxChName"></span><button type="button" id="favBtn" class="favb" aria-pressed="false" hidden>☆ Ajouter aux favoris</button></div>
     <div id="nxChBtns" hidden>
       <div class="lab">Tout lire de cette chaîne (jusqu'à 1 000 vidéos), dans l'ordre :</div>
       <div class="big"><button type="button" class="p" id="chNew">Récentes d'abord</button><button type="button" id="chOld">Anciennes d'abord</button><button type="button" id="chRand">Aléatoire</button></div>
@@ -642,14 +649,31 @@ $('#sq').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$
 $('#sclr').onclick=()=>{$('#sq').value='';$('#sugs').textContent='';$('#sq').focus()};
 
 /* « Et ensuite ? » : même artiste / cette chaîne */
-let nx={vid:null,artistQ:'',chan:null,chOv:null};
+let nx={vid:null,artistQ:'',chan:null,chOv:null,favSrc:null};
 /* 5 dernières chaînes regardées */
 const LS_C='bg_chans_v1';let chans=[];
 try{chans=JSON.parse(localStorage.getItem(LS_C)||'[]');if(!Array.isArray(chans))chans=[]}catch(e){chans=[]}
+/* chaînes favorites */
+const LS_F='bg_favs_v1';let favs=[];
+try{favs=JSON.parse(localStorage.getItem(LS_F)||'[]');if(!Array.isArray(favs))favs=[]}catch(e){favs=[]}
+const isFav=id=>favs.some(f=>f.id===id);
+function toggleFav(id,name){
+  if(!id)return;
+  if(isFav(id)){favs=favs.filter(f=>f.id!==id);toast('Retirée de tes favoris')}
+  else{favs.push({id,name:name||'Chaîne'});favs=favs.slice(-20);toast('Ajoutée à tes favoris')}
+  try{localStorage.setItem(LS_F,JSON.stringify(favs))}catch(e){}
+  renderRecent();updateFavBtn();
+}
+function updateFavBtn(){const b=$('#favBtn');if(!b)return;const s=nx.favSrc;b.hidden=!s;if(!s)return;
+  const on=isFav(s.id);b.setAttribute('aria-pressed',String(on));b.textContent=on?'★ Favori':'☆ Ajouter aux favoris'}
+function chipRow(box,lab,arr,star){
+  box.textContent='';box.hidden=lab.hidden=!arr.length;
+  arr.forEach(c=>{const b=document.createElement('button');b.type='button';b.textContent=(star?'★ ':'')+(c.name||'Chaîne');b.onclick=()=>openChannelView(c.id,c.name);box.appendChild(b)});
+}
 function renderRecent(){
-  const box=$('#recent');if(!box)return;box.textContent='';
-  box.hidden=$('#rcLab').hidden=!chans.length;
-  chans.forEach(c=>{const b=document.createElement('button');b.type='button';b.textContent=c.name||'Chaîne';b.onclick=()=>openChannelView(c.id,c.name);box.appendChild(b)});
+  if(!$('#recent'))return;
+  chipRow($('#favs'),$('#favLab'),favs,true);
+  chipRow($('#recent'),$('#rcLab'),chans.filter(c=>!isFav(c.id)),false);
 }
 function touchChan(v){
   if(!v||!v.ch)return;
@@ -661,7 +685,7 @@ function touchChan(v){
 }
 function openChannelView(id,name){
   openView('vNext');const cur=list[idx];
-  nx.vid=cur?cur.id:null;nx.chan=null;nx.chOv={id,name:name||''};$('#nxProg').textContent='';
+  nx.vid=cur?cur.id:null;nx.chan=null;nx.chOv={id,name:name||''};nx.favSrc=nx.chOv;$('#nxProg').textContent='';
   $('#nxNow').textContent=cur?cur.title:'Rien en cours';nx.artistQ=name||'';$('#nxQ').value=name||'';
   setMsg($('#nxRes'),'Appuie sur « Chercher » pour les vidéos de cet artiste.');
   setTab('chan');
@@ -678,7 +702,7 @@ function setTab(t){
 }
 async function openNext(){
   const v=list[idx];if(!v){toast("Lance d'abord une vidéo");return}
-  openView('vNext');nx.vid=v.id;nx.chan=null;nx.chOv=null;$('#nxProg').textContent='';
+  openView('vNext');nx.vid=v.id;nx.chan=null;nx.chOv=null;nx.favSrc=null;$('#nxProg').textContent='';
   $('#nxNow').textContent=v.title;nx.artistQ=guessArtist(v);$('#nxQ').value=nx.artistQ;
   setTab('artist');setMsg($('#nxRes'),'Recherche…');
   if(!v.ch&&API_KEY)await enrich(v);
@@ -701,7 +725,7 @@ async function loadChan(){
     if(!v||!v.ch){$('#nxChBtns').hidden=true;setMsg(box,"Chaîne introuvable pour cette vidéo.");return}
     src={id:v.ch,name:v.chT};
   }
-  $('#nxChName').textContent=src.name||'Cette chaîne';$('#nxChBtns').hidden=false;
+  $('#nxChName').textContent=src.name||'Cette chaîne';$('#nxChBtns').hidden=false;nx.favSrc=src;updateFavBtn();
   if(nx.chan&&nx.chan.id===src.id)return;
   nx.chan={id:src.id};setMsg(box,'Chargement…');
   /* aperçu illimité, sans les vidéos déjà écoutées (70 %) */
@@ -1000,6 +1024,7 @@ $('#paste').onclick=async()=>{
 $('#shuf').onclick=()=>{shuffle=!shuffle;$('#shuf').setAttribute('aria-pressed',String(shuffle));played=new Set();save();toast(shuffle?'Lecture aléatoire activée':'Lecture dans l\'ordre')};
 $('#shuf').setAttribute('aria-pressed',String(shuffle));
 
+$('#favBtn').onclick=()=>{const s=nx.favSrc;if(s)toggleFav(s.id,s.name)};
 setPlaying(false);render();renderRecent();setMode(null);
 if(list[idx])$('#cover').src=`https://i.ytimg.com/vi/${list[idx].id}/hqdefault.jpg`;
 resize();requestAnimationFrame(frame);
