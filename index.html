@@ -283,7 +283,7 @@ body.playing .eq i{animation:eq .9s ease-in-out infinite}
   <div class="big"><button type="button" class="p" id="kSave">Enregistrer</button><button type="button" id="kTest">Tester</button></div>
   <div class="lab" id="kMsg"></div>
   <div class="lab" id="hCount"></div><div class="big"><button type="button" id="hClear">Effacer l'historique d'écoute</button></div>
-  <div class="lab" id="ver">Version 13</div>
+  <div class="lab" id="ver">Version 14</div>
   <div class="steps">La clé sert à la recherche, aux vidéos d'une même chaîne et aux titres. Elle reste dans ton iPhone, elle n'est jamais mise en ligne.<br><br><b>Pour l'obtenir :</b> console.cloud.google.com → nouveau projet → « API et services » → activer « YouTube Data API v3 » → Identifiants → Créer une clé API. Restreins-la au site <b>https://lfmanage.github.io/*</b> et à l'API YouTube Data v3.</div>
 </div></section>
 
@@ -406,18 +406,30 @@ async function channelAll(chId,onProg,skip){
 /* ================= Liste ================= */
 function itemFrom(v){return{id:v.id,title:v.title||('Vidéo '+v.id),ch:v.ch||'',chT:v.chT||'',pub:v.pub||''}}
 function fmtDate(s){if(!s)return '';const d=new Date(s);return isNaN(d)?'':d.toLocaleDateString('fr-FR',{day:'numeric',month:'short',year:'numeric'})}
+/* Une vidéo n'entre dans « Ma liste » que si tu l'ajoutes toi-même (bouton +).
+   Celles qu'on lance simplement (tmp) jouent puis disparaissent. Une vidéo terminée disparaît aussi. */
+function goTo(i,finished){
+  const cur=list[idx];
+  const drop=cur&&i!==idx&&(cur.tmp||finished===true||heard.has(cur.id));
+  if(drop){list.splice(idx,1);if(i>idx)i--;hist=[];played=new Set()}
+  else if(i!==idx){hist.push(idx);if(hist.length>300)hist.shift()}
+  idx=Math.max(0,Math.min(i,list.length-1));save();render();play();
+}
 function addItem(v,opt){
   opt=opt||{};v=itemFrom(v);if(!/^[\w-]{11}$/.test(v.id))return;
   const ex=list.findIndex(x=>x.id===v.id);
-  if(ex>=0){if(opt.playNow){hist.push(idx);idx=ex;save();render();play()}else toast('Déjà dans ta liste');return}
-  if(opt.playNow){if(list.length){list.splice(idx+1,0,v);hist.push(idx);idx=idx+1}else{list.push(v);idx=0}save();render();play()}
+  if(ex>=0){
+    if(opt.playNow){goTo(ex);return}
+    if(list[ex].tmp){delete list[ex].tmp;save();render();toast('Ajouté à ta liste')}else toast('Déjà dans ta liste');return}
+  if(opt.playNow){v.tmp=1;if(list.length){list.splice(idx+1,0,v);goTo(idx+1)}else{list.push(v);idx=0;save();render();play()}}
   else{list.push(v);if(list.length===1)idx=0;save();render();toast('Ajouté à ta liste')}
 }
 async function add(raw){
   const id=getId(raw);if(!id){toast('Lien YouTube pas reconnu');return}
   const ex=list.findIndex(x=>x.id===id);let item;
-  if(ex>=0){hist.push(idx);idx=ex;item=list[ex]}else{item={id,title:'Vidéo '+id,ch:'',chT:''};list.push(item);hist.push(idx);idx=list.length-1}
-  save();render();play();enrich(item);
+  if(ex>=0){item=list[ex];goTo(ex)}
+  else{item={id,title:'Vidéo '+id,ch:'',chT:'',tmp:1};if(list.length){list.splice(idx+1,0,item);goTo(idx+1)}else{list.push(item);idx=0;save();render();play()}}
+  enrich(item);
 }
 async function enrich(item){
   if(API_KEY){try{const j=await yapi('/videos',{part:'snippet',id:item.id});const s=j.items&&j.items[0]&&j.items[0].snippet;
@@ -427,16 +439,18 @@ async function enrich(item){
 }
 function render(){
   const box=$('#list');box.textContent='';
-  if(!list.length){const d=document.createElement('div');d.className='empty';d.textContent='Ta liste est vide. Cherche une vidéo ou colle un lien pour allumer le feu.';box.appendChild(d)}
+  const shownN=list.filter(x=>!x.tmp).length;
+  if(!shownN){const d=document.createElement('div');d.className='empty';d.textContent='Ta liste est vide. Cherche une vidéo ou colle un lien pour allumer le feu.';box.appendChild(d)}
   const fr=document.createDocumentFragment();
-  list.forEach((v,i)=>{const d=document.createElement('div');d.className='it'+(i===idx?' on':'')+(heard.has(v.id)?' heard':'');
+  let num=0;
+  list.forEach((v,i)=>{if(v.tmp)return;num++;const d=document.createElement('div');d.className='it'+(i===idx?' on':'')+(heard.has(v.id)?' heard':'');
     d.innerHTML=`<span class="n"></span><img loading="lazy" src="https://i.ytimg.com/vi/${v.id}/mqdefault.jpg" alt=""><div class="t"><div class="tt2"></div><small></small></div><span class="eq"><i></i><i></i><i></i></span><b aria-label="Retirer">✕</b>`;
-    d.querySelector('.n').textContent=i+1;d.querySelector('.tt2').textContent=v.title;d.querySelector('small').textContent=[fmtDate(v.pub),isHeardTxt(v)].filter(Boolean).join(' · ');
-    d.onclick=()=>{if(i!==idx)hist.push(idx);idx=i;save();render();play()};
+    d.querySelector('.n').textContent=num;d.querySelector('.tt2').textContent=v.title;d.querySelector('small').textContent=[fmtDate(v.pub),isHeardTxt(v)].filter(Boolean).join(' · ');
+    d.onclick=()=>goTo(i);
     d.querySelector('b').onclick=e=>{e.stopPropagation();list.splice(i,1);if(i<idx)idx--;else if(idx>=list.length)idx=Math.max(0,list.length-1);hist=[];played=new Set();save();render()};
     fr.appendChild(d)});
   box.appendChild(fr);
-  $('#lcount').textContent=list.length?' · '+list.length:'';
+  $('#lcount').textContent=shownN?' · '+shownN:'';
   const c=list[idx];$('#now').textContent=c?c.title:"Rien pour l'instant";
   if(c)setPainting(c.id);
 }
@@ -495,14 +509,16 @@ function pickNext(){
   for(let k=1;k<list.length;k++){const i=(idx+k)%list.length;if(ok(i))return i}
   return -1;
 }
-function next(){
+function next(fin){
+  fin=fin===true;
   const n=pickNext();
-  if(n>=0){hist.push(idx);if(hist.length>300)hist.shift();idx=n;save();render();play();return}
-  if($('#autoSug').checked)suggestNext();else toast("Plus de vidéo nouvelle dans ta liste");
+  if(n>=0){goTo(n,fin);return}
+  if($('#autoSug').checked)suggestNext(fin);
+  else{const c=list[idx];if(fin&&c){list.splice(idx,1);idx=Math.max(0,Math.min(idx,list.length-1));save();render()}toast("Plus de vidéo nouvelle dans ta liste")}
 }
 /* suggestion automatique : d'abord la MÊME CHAÎNE (au hasard), sinon même artiste */
 let sugBusy=false,sugKey='',sugPool=[];
-async function suggestNext(){
+async function suggestNext(fin){
   if(sugBusy)return;const cur=list[idx];if(!cur)return;sugBusy=true;
   try{
     toast('Je cherche la suite…');
@@ -526,8 +542,8 @@ async function suggestNext(){
       if(sugPool.length)pick=sugPool.shift();
     }
     if(!pick){toast('Aucune nouvelle vidéo trouvée');return}
-    const v=itemFrom(pick);v.sug=1;
-    hist.push(idx);list.splice(idx+1,0,v);idx=idx+1;save();render();play();
+    const v=itemFrom(pick);v.sug=1;v.tmp=1;
+    list.splice(idx+1,0,v);goTo(idx+1,fin===true);
     toast('Suite : '+v.title);
   }catch(e){toast(errMsg(e))}
   finally{sugBusy=false}
@@ -535,8 +551,11 @@ async function suggestNext(){
 function prev(){
   if(engine==='audio'&&au.currentTime>5){au.currentTime=0;return}
   if(!list.length)return;
-  if(hist.length){idx=hist.pop()}else idx=(idx-1+list.length)%list.length;
-  save();render();play();
+  let t=hist.length?hist.pop():(idx-1+list.length)%list.length;
+  if(t>=list.length)t=list.length-1;
+  const cur=list[idx];
+  if(cur&&cur.tmp&&t!==idx){list.splice(idx,1);if(t>idx)t--;hist=[];idx=Math.max(0,t);save();render();play();return}
+  idx=t;save();render();play();
 }
 function toggle(){
   if(!engine){play();return}
@@ -553,14 +572,14 @@ if('mediaSession' in navigator){const ms=navigator.mediaSession;
   const h=(a,f)=>{try{ms.setActionHandler(a,f)}catch(e){}};
   h('play',()=>{userPaused=false;engine==='audio'?au.play():yt&&yt.playVideo()});
   h('pause',()=>{userPaused=true;engine==='audio'?au.pause():yt&&yt.pauseVideo()});
-  h('nexttrack',next);h('previoustrack',prev);
+  h('nexttrack',()=>next());h('previoustrack',prev);
   h('seekto',e=>{if(engine==='audio')au.currentTime=e.seekTime});
   h('seekbackward',()=>{if(engine==='audio')au.currentTime-=15});
   h('seekforward',()=>{if(engine==='audio')au.currentTime+=15});
 }
 au.addEventListener('playing',()=>setPlaying(true));
 au.addEventListener('pause',()=>{setPlaying(false);if(document.hidden)tryResume()});
-au.addEventListener('ended',()=>{endHeard(au.duration);next()});
+au.addEventListener('ended',()=>{endHeard(au.duration);next(true)});
 au.addEventListener('error',()=>{if(engine==='audio'&&au.src){goodApi=null;apis=[];au.removeAttribute('src');setMode('yt');if(ytReady&&list[idx])yt.loadVideoById(list[idx].id)}});
 au.addEventListener('timeupdate',()=>{if(au.duration){checkHeard(au.currentTime,au.duration);$('#bar div').style.width=(au.currentTime/au.duration*100)+'%';
   try{navigator.mediaSession.setPositionState({duration:au.duration,position:au.currentTime,playbackRate:1})}catch(e){}}});
@@ -574,7 +593,7 @@ window.onYouTubeIframeAPIReady=()=>{
   yt=new YT.Player('player',{host:'https://www.youtube-nocookie.com',playerVars:{playsinline:1,rel:0},
     events:{onReady:()=>{ytReady=true;if((engine==='yt'||engine==='loading')&&list[idx])yt.loadVideoById(list[idx].id)},
       onStateChange:e=>{if(engine!=='yt')return;setPlaying(e.data===YT.PlayerState.PLAYING);
-        if(e.data===YT.PlayerState.ENDED){endHeard(yt.getDuration());next()}
+        if(e.data===YT.PlayerState.ENDED){endHeard(yt.getDuration());next(true)}
         if(e.data===YT.PlayerState.PAUSED&&document.hidden)tryResume()}}});
   setInterval(()=>{if(engine==='yt'&&ytReady&&yt.getDuration){syncYtState();const d=yt.getDuration();if(d){if(playing)checkHeard(yt.getCurrentTime(),d);$('#bar div').style.width=(yt.getCurrentTime()/d*100)+'%'}}},1000);
 };
@@ -1050,7 +1069,7 @@ new ResizeObserver(resize).observe(cv);
 if('IntersectionObserver' in window)new IntersectionObserver(e=>{visible=e[0].isIntersecting}).observe(cv);
 
 /* ================= Boutons ================= */
-$('#pp').onclick=toggle;$('#next').onclick=next;$('#prev').onclick=prev;
+$('#pp').onclick=toggle;$('#next').onclick=()=>next();$('#prev').onclick=prev;
 $('#audioMode').onchange=$('#auto').onchange=$('#autoSug').onchange=save;
 $('#openSearch').onclick=()=>openSearch('');
 $('#openNext').onclick=openNext;
