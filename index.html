@@ -179,6 +179,23 @@ body.playing .eq i{animation:eq .9s ease-in-out infinite}
 .favb{flex:none;height:44px;padding:0 14px;border-radius:22px;border:1px solid rgba(244,180,95,.5);background:transparent;color:var(--acc2);font-size:13.5px;font-weight:700;font-family:inherit}
 .favb[aria-pressed=true]{background:rgba(232,130,58,.2)}
 #favs button{border-color:rgba(244,180,95,.75);background:rgba(232,130,58,.22)}
+/* v18 : accueil et liste compacts */
+.nextcard{padding:9px 14px;margin:0 0 4px}
+.nextcard b{font-size:16px}
+.nextcard small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}
+.ctrl{margin-bottom:10px}
+.now{margin-top:10px}
+.lh{margin:12px 2px 8px}
+.it{gap:9px;padding:5px 8px;margin-bottom:5px;border-radius:12px;contain-intrinsic-size:0 50px}
+.it .n{min-width:20px;font-size:11.5px}
+.it img{width:64px;height:36px;border-radius:7px}
+.it .t{font-size:12.5px;line-height:1.2}
+.it .t small{font-size:10.5px;margin-top:1px}
+.it b{font-size:17px;padding:4px 7px}
+.help{margin-top:8px}
+.set .tg{display:flex;font-size:15px;color:var(--txt);margin:0}
+.set .tg input{width:auto;height:auto;padding:0;border:0;background:none}
+.set .opts{display:grid;gap:8px}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -225,12 +242,7 @@ body.playing .eq i{animation:eq .9s ease-in-out infinite}
   <svg viewBox="0 0 24 24" fill="none" stroke="#f4b45f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
 </button>
 
-<div class="opts">
-  <label class="tg"><span>Mode audio<small>Lecteur iPhone, continue écran verrouillé</small></span><input type="checkbox" class="sw" id="audioMode" checked><span class="knob"></span></label>
-  <label class="tg"><span>Relance auto<small>Retente la lecture si ça coupe</small></span><input type="checkbox" class="sw" id="auto" checked><span class="knob"></span></label>
-  <label class="tg"><span>Suggestions automatiques<small>À la fin, lance une vidéo du même artiste</small></span><input type="checkbox" class="sw" id="autoSug" checked><span class="knob"></span></label>
-  <label class="tg"><span>Crépitement du feu<small>Petit bruit de cheminée en fond</small></span><input type="checkbox" class="sw" id="crackle"><span class="knob"></span></label>
-</div>
+
 
 <div class="lh"><h2>Ma liste<span id="lcount"></span></h2>
   <button type="button" class="chip" id="shuf" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>Aléatoire</button></div>
@@ -278,13 +290,19 @@ body.playing .eq i{animation:eq .9s ease-in-out infinite}
 
 <section class="view set" id="vSet" aria-label="Réglages"><div class="in">
   <div class="vh"><button type="button" class="back" data-close aria-label="Retour"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button><h1>Réglages</h1></div>
+  <div class="opts" style="margin:4px 0 8px">
+  <label class="tg"><span>Mode audio<small>Lecteur iPhone, continue écran verrouillé</small></span><input type="checkbox" class="sw" id="audioMode" checked><span class="knob"></span></label>
+  <label class="tg"><span>Relance auto<small>Retente la lecture si ça coupe</small></span><input type="checkbox" class="sw" id="auto" checked><span class="knob"></span></label>
+  <label class="tg"><span>Suggestions automatiques<small>À la fin, lance une vidéo du même artiste</small></span><input type="checkbox" class="sw" id="autoSug" checked><span class="knob"></span></label>
+  <label class="tg"><span>Crépitement du feu<small>Petit bruit de cheminée en fond</small></span><input type="checkbox" class="sw" id="crackle"><span class="knob"></span></label>
+</div>
   <label for="kIn">Clé YouTube (gratuite)</label>
   <input type="text" id="kIn" placeholder="AIza…" autocomplete="off" autocapitalize="off" spellcheck="false">
   <div class="big"><button type="button" class="p" id="kSave">Enregistrer</button><button type="button" id="kTest">Tester</button></div>
   <div class="lab" id="kMsg"></div>
   <div class="lab" id="hCount"></div><div class="big"><button type="button" id="hClear">Effacer l'historique d'écoute</button></div>
   <div class="big"><button type="button" id="cleanBtn">Nettoyer ma liste (écoutées et masquées)</button></div>
-  <div class="lab" id="ver">Version 17</div>
+  <div class="lab" id="ver">Version 18</div>
   <div class="steps">La clé sert à la recherche, aux vidéos d'une même chaîne et aux titres. Elle reste dans ton iPhone, elle n'est jamais mise en ligne.<br><br><b>Pour l'obtenir :</b> console.cloud.google.com → nouveau projet → « API et services » → activer « YouTube Data API v3 » → Identifiants → Créer une clé API. Restreins-la au site <b>https://lfmanage.github.io/*</b> et à l'API YouTube Data v3.</div>
 </div></section>
 
