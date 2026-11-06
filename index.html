@@ -284,7 +284,7 @@ body.playing .eq i{animation:eq .9s ease-in-out infinite}
   <div class="lab" id="kMsg"></div>
   <div class="lab" id="hCount"></div><div class="big"><button type="button" id="hClear">Effacer l'historique d'écoute</button></div>
   <div class="big"><button type="button" id="cleanBtn">Nettoyer ma liste (écoutées et masquées)</button></div>
-  <div class="lab" id="ver">Version 15</div>
+  <div class="lab" id="ver">Version 16</div>
   <div class="steps">La clé sert à la recherche, aux vidéos d'une même chaîne et aux titres. Elle reste dans ton iPhone, elle n'est jamais mise en ligne.<br><br><b>Pour l'obtenir :</b> console.cloud.google.com → nouveau projet → « API et services » → activer « YouTube Data API v3 » → Identifiants → Créer une clé API. Restreins-la au site <b>https://lfmanage.github.io/*</b> et à l'API YouTube Data v3.</div>
 </div></section>
 
@@ -489,24 +489,34 @@ function setMode(m){engine=m;const el=$('#mode');
   else{el.textContent='Prêt';el.className='';$('#cover').style.display='none';$('#ytbox').style.visibility='hidden'}}
 
 /* ================= Lecture ================= */
+/* reprise de la position : si Safari recharge la page, la vidéo repart là où elle en était */
+const LS_T='bg_pos_v1';let resume=null,curStart=0,posT=0;
+try{const p=JSON.parse(localStorage.getItem(LS_T)||'null');if(p&&p.id&&p.t>3)resume=p}catch(e){}
+function savePos(id,t,force){
+  if(!id||!(t>=0))return;const now=Date.now();if(!force&&now-posT<4000)return;posT=now;
+  try{localStorage.setItem(LS_T,JSON.stringify({id,t:Math.floor(t)}))}catch(e){}
+}
+function startFor(id){if(resume&&resume.id===id&&resume.t>3){const t=resume.t;resume=null;return t}resume=null;return 0}
+function ytLoad(id,start){try{start>0?yt.loadVideoById({videoId:id,startSeconds:start}):yt.loadVideoById(id)}catch(e){}}
 let token=0,pipedDownUntil=0;
 /* Lance la lecture. Sur iPhone, la lecture YouTube ne démarre toute seule que si elle part
    tout de suite après ton toucher : on la lance donc immédiatement, sans attendre les
    serveurs audio, puis on passe en « Audio iPhone » seulement si ça marche. */
 async function play(){
   const v=list[idx];if(!v)return;const my=++token;userPaused=false;
+  const st=startFor(v.id);curStart=st;if(!st)savePos(v.id,0,true);
   $('#cover').src=`https://i.ytimg.com/vi/${v.id}/hqdefault.jpg`;meta();setPainting(v.id);touchChan(v);
   if($('#audioMode').checked&&Date.now()>pipedDownUntil){
     setMode('loading');
-    if(ytReady)try{yt.loadVideoById(v.id)}catch(e){}
+    if(ytReady)ytLoad(v.id,st);
     au.play().catch(()=>{});
     const s=await audioUrl(v.id);if(my!==token)return;
-    if(s){if(ytReady)try{yt.stopVideo()}catch(e){}setMode('audio');au.src=s.url;au.play().catch(()=>{});return}
+    if(s){if(ytReady)try{yt.stopVideo()}catch(e){}setMode('audio');au.src=s.url;if(st>0)au.addEventListener('loadedmetadata',()=>{try{au.currentTime=st}catch(e){}},{once:true});au.play().catch(()=>{});return}
     pipedDownUntil=Date.now()+15*60000; /* serveurs audio en panne : on ne réessaie pas tout de suite */
     setMode('yt');syncYtState();return;
   }
   au.pause();au.removeAttribute('src');setMode('yt');
-  if(ytReady)yt.loadVideoById(v.id);
+  if(ytReady)ytLoad(v.id,st);
 }
 function syncYtState(){try{if(engine==='yt'&&ytReady)setPlaying(yt.getPlayerState()===YT.PlayerState.PLAYING)}catch(e){}}
 /* prochaine vidéo NON écoutée de la liste (-1 s'il n'y en a plus) */
@@ -592,23 +602,25 @@ if('mediaSession' in navigator){const ms=navigator.mediaSession;
 }
 au.addEventListener('playing',()=>setPlaying(true));
 au.addEventListener('pause',()=>{setPlaying(false);if(document.hidden)tryResume()});
-au.addEventListener('ended',()=>{endHeard(au.duration);next(true)});
+au.addEventListener('ended',()=>{endHeard(au.duration);savePos((list[idx]||{}).id,0,true);next(true)});
 au.addEventListener('error',()=>{if(engine==='audio'&&au.src){goodApi=null;apis=[];au.removeAttribute('src');setMode('yt');if(ytReady&&list[idx])yt.loadVideoById(list[idx].id)}});
-au.addEventListener('timeupdate',()=>{if(au.duration){checkHeard(au.currentTime,au.duration);$('#bar div').style.width=(au.currentTime/au.duration*100)+'%';
+au.addEventListener('timeupdate',()=>{if(au.duration){const cv=list[idx];if(cv)savePos(cv.id,au.currentTime);checkHeard(au.currentTime,au.duration);$('#bar div').style.width=(au.currentTime/au.duration*100)+'%';
   try{navigator.mediaSession.setPositionState({duration:au.duration,position:au.currentTime,playbackRate:1})}catch(e){}}});
 
 function tryResume(){if(!$('#auto').checked||userPaused)return;
   [200,700,1600,3500].forEach(t=>setTimeout(()=>{if(playing||userPaused)return;
     if(engine==='audio')au.play().catch(()=>{});else if(ytReady)yt.playVideo()},t))}
-document.addEventListener('visibilitychange',()=>{if(document.hidden)tryResume()});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){tryResume();flushPos()}});
+window.addEventListener('pagehide',()=>flushPos());
+function flushPos(){const cv=list[idx];if(!cv)return;try{const t=engine==='audio'?au.currentTime:(ytReady&&yt.getCurrentTime?yt.getCurrentTime():0);if(t>3)savePos(cv.id,t,true)}catch(e){}}
 
 window.onYouTubeIframeAPIReady=()=>{
   yt=new YT.Player('player',{host:'https://www.youtube-nocookie.com',playerVars:{playsinline:1,rel:0},
-    events:{onReady:()=>{ytReady=true;if((engine==='yt'||engine==='loading')&&list[idx])yt.loadVideoById(list[idx].id)},
+    events:{onReady:()=>{ytReady=true;if((engine==='yt'||engine==='loading')&&list[idx])ytLoad(list[idx].id,curStart)},
       onStateChange:e=>{if(engine!=='yt')return;setPlaying(e.data===YT.PlayerState.PLAYING);
-        if(e.data===YT.PlayerState.ENDED){endHeard(yt.getDuration());next(true)}
+        if(e.data===YT.PlayerState.ENDED){endHeard(yt.getDuration());savePos((list[idx]||{}).id,0,true);next(true)}
         if(e.data===YT.PlayerState.PAUSED&&document.hidden)tryResume()}}});
-  setInterval(()=>{if(engine==='yt'&&ytReady&&yt.getDuration){syncYtState();const d=yt.getDuration();if(d){if(playing)checkHeard(yt.getCurrentTime(),d);$('#bar div').style.width=(yt.getCurrentTime()/d*100)+'%'}}},1000);
+  setInterval(()=>{if(engine==='yt'&&ytReady&&yt.getDuration){syncYtState();const d=yt.getDuration();if(d){if(playing){checkHeard(yt.getCurrentTime(),d);const cv=list[idx];if(cv)savePos(cv.id,yt.getCurrentTime())}$('#bar div').style.width=(yt.getCurrentTime()/d*100)+'%'}}},1000);
 };
 
 /* ================= Écrans : recherche, « et ensuite ? », réglages ================= */
