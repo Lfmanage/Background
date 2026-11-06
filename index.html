@@ -162,6 +162,8 @@ body.playing .eq i{animation:eq .9s ease-in-out infinite}
 .set input{width:100%;height:48px;border-radius:14px;background:rgba(0,0,0,.3);border:1px solid var(--line);color:var(--txt);padding:0 14px;font-size:16px;font-family:inherit;outline:0}
 .set .steps{font-size:13.5px;line-height:1.65;color:var(--mut);margin:16px 2px}
 .set .steps b{color:var(--txt)}
+.it.heard .t,.it.heard img{opacity:.5}
+.res.heard{opacity:.6}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -206,6 +208,7 @@ body.playing .eq i{animation:eq .9s ease-in-out infinite}
 <div class="opts">
   <label class="tg"><span>Mode audio<small>Lecteur iPhone, continue écran verrouillé</small></span><input type="checkbox" class="sw" id="audioMode" checked><span class="knob"></span></label>
   <label class="tg"><span>Relance auto<small>Retente la lecture si ça coupe</small></span><input type="checkbox" class="sw" id="auto" checked><span class="knob"></span></label>
+  <label class="tg"><span>Suggestions automatiques<small>À la fin, lance une vidéo du même artiste</small></span><input type="checkbox" class="sw" id="autoSug" checked><span class="knob"></span></label>
   <label class="tg"><span>Crépitement du feu<small>Petit bruit de cheminée en fond</small></span><input type="checkbox" class="sw" id="crackle"><span class="knob"></span></label>
 </div>
 
@@ -255,6 +258,7 @@ body.playing .eq i{animation:eq .9s ease-in-out infinite}
   <input type="text" id="kIn" placeholder="AIza…" autocomplete="off" autocapitalize="off" spellcheck="false">
   <div class="big"><button type="button" class="p" id="kSave">Enregistrer</button><button type="button" id="kTest">Tester</button></div>
   <div class="lab" id="kMsg"></div>
+  <div class="lab" id="hCount"></div><div class="big"><button type="button" id="hClear">Effacer l'historique d'écoute</button></div>
   <div class="steps">La clé sert à la recherche, aux vidéos d'une même chaîne et aux titres. Elle reste dans ton iPhone, elle n'est jamais mise en ligne.<br><br><b>Pour l'obtenir :</b> console.cloud.google.com → nouveau projet → « API et services » → activer « YouTube Data API v3 » → Identifiants → Créer une clé API. Restreins-la au site <b>https://lfmanage.github.io/*</b> et à l'API YouTube Data v3.</div>
 </div></section>
 
@@ -271,13 +275,19 @@ let hist=[],played=new Set(),shuffle=false,API_KEY='';
 const ICON_PLAY='<svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></svg>';
 const ICON_PAUSE='<svg viewBox="0 0 24 24"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></svg>';
 
+const LS_H='bg_heard_v1';
+let heard=new Set(),heardT;
 try{list=JSON.parse(localStorage.getItem(LS_L))||[];idx=+localStorage.getItem(LS_P)||0;
-  const o=JSON.parse(localStorage.getItem(LS_O)||'{}');if(o.audio===false)$('#audioMode').checked=false;if(o.auto===false)$('#auto').checked=false;shuffle=!!o.shuffle;
-  API_KEY=localStorage.getItem(LS_K)||''}catch(e){}
+  const o=JSON.parse(localStorage.getItem(LS_O)||'{}');if(o.audio===false)$('#audioMode').checked=false;if(o.auto===false)$('#auto').checked=false;if(o.sug===false)$('#autoSug').checked=false;shuffle=!!o.shuffle;
+  API_KEY=localStorage.getItem(LS_K)||'';
+  heard=new Set(JSON.parse(localStorage.getItem(LS_H)||'[]'))}catch(e){}
+function saveHeard(){try{localStorage.setItem(LS_H,JSON.stringify([...heard].slice(-5000)))}catch(e){}}
+function markHeard(id){if(!id||heard.has(id))return;heard.add(id);clearTimeout(heardT);heardT=setTimeout(saveHeard,1200);render()}
+function checkHeard(t,d){const v=list[idx];if(!v||heard.has(v.id))return;if(d&&t>=d*.7)markHeard(v.id)}
 if(!Array.isArray(list))list=[];
 if(idx>=list.length||idx<0)idx=0;
 const save=()=>{try{localStorage.setItem(LS_L,JSON.stringify(list));localStorage.setItem(LS_P,idx);
-  localStorage.setItem(LS_O,JSON.stringify({audio:$('#audioMode').checked,auto:$('#auto').checked,shuffle}))}catch(e){}};
+  localStorage.setItem(LS_O,JSON.stringify({audio:$('#audioMode').checked,auto:$('#auto').checked,sug:$('#autoSug').checked,shuffle}))}catch(e){}};
 
 function getId(u){u=(u||'').trim();const m=u.match(/(?:v=|youtu\.be\/|shorts\/|embed\/|live\/)([\w-]{11})/);
   if(m)return m[1];return /^[\w-]{11}$/.test(u)?u:null}
@@ -352,10 +362,13 @@ async function channelPage(chId,token){
   return{items,next:j.nextPageToken||null};
 }
 const MAX_CHAN=1000;
-async function channelAll(chId,onProg){
-  let all=[],tok=null;
-  do{const p=await channelPage(chId,tok);all=all.concat(p.items);tok=p.next;if(onProg)onProg(Math.min(all.length,MAX_CHAN))}while(tok&&all.length<MAX_CHAN);
-  return all.slice(0,MAX_CHAN);
+async function channelAll(chId,onProg,skip){
+  const out=[];let skipped=0,tok=null,pages=0;
+  do{const p=await channelPage(chId,tok);tok=p.next;pages++;
+    for(const v of p.items){if(skip&&skip(v)){skipped++;continue}if(out.length<MAX_CHAN)out.push(v)}
+    if(onProg)onProg(out.length);
+  }while(tok&&out.length<MAX_CHAN&&pages<60);
+  return{items:out,skipped};
 }
 
 /* ================= Liste ================= */
@@ -383,7 +396,7 @@ function render(){
   const box=$('#list');box.textContent='';
   if(!list.length){const d=document.createElement('div');d.className='empty';d.textContent='Ta liste est vide. Cherche une vidéo ou colle un lien pour allumer le feu.';box.appendChild(d)}
   const fr=document.createDocumentFragment();
-  list.forEach((v,i)=>{const d=document.createElement('div');d.className='it'+(i===idx?' on':'');
+  list.forEach((v,i)=>{const d=document.createElement('div');d.className='it'+(i===idx?' on':'')+(heard.has(v.id)?' heard':'');
     d.innerHTML=`<img loading="lazy" src="https://i.ytimg.com/vi/${v.id}/mqdefault.jpg" alt=""><div class="t"></div><span class="eq"><i></i><i></i><i></i></span><b aria-label="Retirer">✕</b>`;
     d.querySelector('.t').textContent=v.title;
     d.onclick=()=>{if(i!==idx)hist.push(idx);idx=i;save();render();play()};
@@ -394,10 +407,10 @@ function render(){
   const c=list[idx];$('#now').textContent=c?c.title:"Rien pour l'instant";
   if(c)setPainting(c.id);
 }
-function replaceList(items){
+function replaceList(items,skipped){
   try{localStorage.setItem(LS_PREV,JSON.stringify({list,idx}))}catch(e){}
   const n=items.length;list=items;idx=0;hist=[];played=new Set();save();render();closeViews();play();
-  toast(n+' vidéos dans ta liste','Annuler',undoReplace);
+  toast(n+' vidéos dans ta liste'+(skipped?' ('+skipped+' déjà écoutées ignorées)':''),'Annuler',undoReplace);
 }
 function undoReplace(){
   try{const p=JSON.parse(localStorage.getItem(LS_PREV));if(p&&Array.isArray(p.list)){list=p.list;idx=Math.min(p.idx||0,Math.max(0,list.length-1));hist=[];played=new Set();save();render();if(list.length)play()}}catch(e){}
@@ -429,16 +442,47 @@ async function play(){
   au.pause();au.removeAttribute('src');setMode('yt');
   if(ytReady)yt.loadVideoById(v.id);
 }
+/* prochaine vidéo NON écoutée de la liste (-1 s'il n'y en a plus) */
 function pickNext(){
   if(!list.length)return -1;
-  if(!shuffle)return (idx+1)%list.length;
-  played.add(idx);
-  let pool=[];for(let i=0;i<list.length;i++)if(!played.has(i))pool.push(i);
-  if(!pool.length){played=new Set([idx]);for(let i=0;i<list.length;i++)if(i!==idx)pool.push(i)}
-  if(!pool.length)return idx;
-  return pool[Math.floor(Math.random()*pool.length)];
+  const ok=i=>i!==idx&&!heard.has(list[i].id);
+  if(shuffle){
+    played.add(idx);
+    let pool=[];for(let i=0;i<list.length;i++)if(ok(i)&&!played.has(i))pool.push(i);
+    if(!pool.length){played=new Set([idx]);for(let i=0;i<list.length;i++)if(ok(i))pool.push(i)}
+    return pool.length?pool[Math.floor(Math.random()*pool.length)]:-1;
+  }
+  for(let k=1;k<list.length;k++){const i=(idx+k)%list.length;if(ok(i))return i}
+  return -1;
 }
-function next(){const n=pickNext();if(n<0)return;hist.push(idx);if(hist.length>300)hist.shift();idx=n;save();render();play()}
+function next(){
+  const n=pickNext();
+  if(n>=0){hist.push(idx);if(hist.length>300)hist.shift();idx=n;save();render();play();return}
+  if($('#autoSug').checked)suggestNext();else toast("Plus de vidéo nouvelle dans ta liste");
+}
+/* suggestion automatique : même artiste / même chaîne, jamais déjà écoutée */
+let sugBusy=false,sugQuery='',sugPool=[];
+async function suggestNext(){
+  if(sugBusy)return;const cur=list[idx];if(!cur)return;sugBusy=true;
+  try{
+    const q=(cur.sug&&sugQuery)?sugQuery:guessArtist(cur);
+    if(!q){toast("Pas assez d'infos pour trouver une suite");return}
+    if(q!==sugQuery){sugQuery=q;sugPool=[]}
+    toast('Je cherche la suite…');
+    const inList=new Set(list.map(x=>x.id));
+    const ok=v=>v.id!==cur.id&&!heard.has(v.id)&&!inList.has(v.id);
+    sugPool=sugPool.filter(ok);
+    if(!sugPool.length){
+      sugPool=(await searchVideos(q)).filter(ok);
+      if(!sugPool.length&&cur.chT&&cur.chT!==q)sugPool=(await searchVideos(cur.chT)).filter(ok);
+    }
+    if(!sugPool.length){toast('Aucune nouvelle vidéo trouvée');return}
+    const v=itemFrom(sugPool.shift());v.sug=1;
+    hist.push(idx);list.splice(idx+1,0,v);idx=idx+1;save();render();play();
+    toast('Suite : '+v.title);
+  }catch(e){toast(errMsg(e))}
+  finally{sugBusy=false}
+}
 function prev(){
   if(engine==='audio'&&au.currentTime>5){au.currentTime=0;return}
   if(!list.length)return;
@@ -467,9 +511,9 @@ if('mediaSession' in navigator){const ms=navigator.mediaSession;
 }
 au.addEventListener('playing',()=>setPlaying(true));
 au.addEventListener('pause',()=>{setPlaying(false);if(document.hidden)tryResume()});
-au.addEventListener('ended',next);
+au.addEventListener('ended',()=>{const v=list[idx];if(v)markHeard(v.id);next()});
 au.addEventListener('error',()=>{if(engine==='audio'&&au.src){goodApi=null;apis=[];au.removeAttribute('src');setMode('yt');if(ytReady&&list[idx])yt.loadVideoById(list[idx].id)}});
-au.addEventListener('timeupdate',()=>{if(au.duration){$('#bar div').style.width=(au.currentTime/au.duration*100)+'%';
+au.addEventListener('timeupdate',()=>{if(au.duration){checkHeard(au.currentTime,au.duration);$('#bar div').style.width=(au.currentTime/au.duration*100)+'%';
   try{navigator.mediaSession.setPositionState({duration:au.duration,position:au.currentTime,playbackRate:1})}catch(e){}}});
 
 function tryResume(){if(!$('#auto').checked||userPaused)return;
@@ -481,9 +525,9 @@ window.onYouTubeIframeAPIReady=()=>{
   yt=new YT.Player('player',{host:'https://www.youtube-nocookie.com',playerVars:{playsinline:1,rel:0},
     events:{onReady:()=>{ytReady=true;if(engine==='yt'&&list[idx])yt.loadVideoById(list[idx].id)},
       onStateChange:e=>{if(engine!=='yt')return;setPlaying(e.data===YT.PlayerState.PLAYING);
-        if(e.data===YT.PlayerState.ENDED)next();
+        if(e.data===YT.PlayerState.ENDED){const v=list[idx];if(v)markHeard(v.id);next()}
         if(e.data===YT.PlayerState.PAUSED&&document.hidden)tryResume()}}});
-  setInterval(()=>{if(engine==='yt'&&ytReady&&yt.getDuration){const d=yt.getDuration();if(d)$('#bar div').style.width=(yt.getCurrentTime()/d*100)+'%'}},1000);
+  setInterval(()=>{if(engine==='yt'&&ytReady&&yt.getDuration){const d=yt.getDuration();if(d){if(playing)checkHeard(yt.getCurrentTime(),d);$('#bar div').style.width=(yt.getCurrentTime()/d*100)+'%'}}},1000);
 };
 
 /* ================= Écrans : recherche, « et ensuite ? », réglages ================= */
@@ -496,11 +540,12 @@ function svgI(p,fill){return `<svg viewBox="0 0 24 24" ${fill?'fill="currentColo
 function resCard(v){
   const d=document.createElement('div');d.className='res';
   if(!/^[\w-]{11}$/.test(v.id||''))return d;
+  const isHeard=heard.has(v.id);if(isHeard)d.classList.add('heard');
   const th=document.createElement('div');th.className='th';th.style.backgroundImage=`url(https://i.ytimg.com/vi/${v.id}/mqdefault.jpg)`;
   if(v.dur){const s=document.createElement('span');s.textContent=v.dur;th.appendChild(s)}
   const tx=document.createElement('div');tx.className='tx';
   const tt=document.createElement('div');tt.className='tt';tt.textContent=v.title;
-  const ch=document.createElement('div');ch.className='ch';ch.textContent=v.chT||'';
+  const ch=document.createElement('div');ch.className='ch';ch.textContent=(v.chT||'')+(isHeard?' · déjà écoutée':'');
   tx.append(tt,ch);
   const ac=document.createElement('div');ac.className='ac';
   const bp=document.createElement('button');bp.type='button';bp.className='rb p';bp.setAttribute('aria-label','Lancer');bp.innerHTML=svgI('<path d="M8 5.5v13l11-6.5z"/>',true);
@@ -585,10 +630,11 @@ async function playChannel(order){
   const st=$('#nxProg');const btns=$('#nxChBtns').querySelectorAll('button');
   btns.forEach(b=>b.disabled=true);st.textContent='Chargement…';
   try{
-    const all=await channelAll(v.ch,n=>{st.textContent='Chargement… '+n+' vidéos'});
-    if(!all.length){st.textContent='Aucune vidéo trouvée.';return}
+    const r=await channelAll(v.ch,n=>{st.textContent='Chargement… '+n+' vidéos'},x=>heard.has(x.id));
+    const all=r.items;
+    if(!all.length){st.textContent=r.skipped?'Tu as déjà écouté toutes les vidéos de cette chaîne.':'Aucune vidéo trouvée.';return}
     if(order==='old')all.reverse();else if(order==='rand')shuffleArr(all);
-    st.textContent='';replaceList(all);
+    st.textContent='';replaceList(all,r.skipped);
   }catch(e){st.textContent=errMsg(e)}
   finally{btns.forEach(b=>b.disabled=false)}
 }
@@ -598,7 +644,11 @@ $('#nxQ').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();
 $('#chNew').onclick=()=>playChannel('new');$('#chOld').onclick=()=>playChannel('old');$('#chRand').onclick=()=>playChannel('rand');
 
 /* réglages : clé YouTube */
-function openSet(){openView('vSet');$('#kIn').value=API_KEY;$('#kMsg').textContent=''}
+function heardInfo(){$('#hCount').textContent=heard.size+' vidéo'+(heard.size>1?'s':'')+' déjà écoutée'+(heard.size>1?'s':'')+' : elles ne repassent plus toutes seules.';$('#hClear').textContent="Effacer l'historique d'écoute"}
+function openSet(){openView('vSet');$('#kIn').value=API_KEY;$('#kMsg').textContent='';heardInfo()}
+$('#hClear').onclick=()=>{const b=$('#hClear');
+  if(b.dataset.sure!=='1'){b.dataset.sure='1';b.textContent='Confirmer : tout effacer';setTimeout(()=>{b.dataset.sure='';if(b.textContent.startsWith('Confirmer'))b.textContent="Effacer l'historique d'écoute"},4000);return}
+  b.dataset.sure='';heard=new Set();saveHeard();render();heardInfo()};
 $('#kSave').onclick=()=>{API_KEY=$('#kIn').value.trim();try{localStorage.setItem(LS_K,API_KEY)}catch(e){}$('#kMsg').textContent=API_KEY?'Clé enregistrée.':'Clé effacée.'};
 $('#kTest').onclick=async()=>{
   API_KEY=$('#kIn').value.trim();try{localStorage.setItem(LS_K,API_KEY)}catch(e){}
@@ -841,7 +891,7 @@ if('IntersectionObserver' in window)new IntersectionObserver(e=>{visible=e[0].is
 
 /* ================= Boutons ================= */
 $('#pp').onclick=toggle;$('#next').onclick=next;$('#prev').onclick=prev;
-$('#audioMode').onchange=$('#auto').onchange=save;
+$('#audioMode').onchange=$('#auto').onchange=$('#autoSug').onchange=save;
 $('#openSearch').onclick=()=>openSearch('');
 $('#openNext').onclick=openNext;
 $('#gear').onclick=openSet;
