@@ -283,7 +283,8 @@ body.playing .eq i{animation:eq .9s ease-in-out infinite}
   <div class="big"><button type="button" class="p" id="kSave">Enregistrer</button><button type="button" id="kTest">Tester</button></div>
   <div class="lab" id="kMsg"></div>
   <div class="lab" id="hCount"></div><div class="big"><button type="button" id="hClear">Effacer l'historique d'écoute</button></div>
-  <div class="lab" id="ver">Version 14</div>
+  <div class="big"><button type="button" id="cleanBtn">Nettoyer ma liste (écoutées et masquées)</button></div>
+  <div class="lab" id="ver">Version 15</div>
   <div class="steps">La clé sert à la recherche, aux vidéos d'une même chaîne et aux titres. Elle reste dans ton iPhone, elle n'est jamais mise en ligne.<br><br><b>Pour l'obtenir :</b> console.cloud.google.com → nouveau projet → « API et services » → activer « YouTube Data API v3 » → Identifiants → Créer une clé API. Restreins-la au site <b>https://lfmanage.github.io/*</b> et à l'API YouTube Data v3.</div>
 </div></section>
 
@@ -459,6 +460,18 @@ function replaceList(items,skipped,total,partial){
   try{localStorage.setItem(LS_PREV,JSON.stringify({list,idx}))}catch(e){}
   const n=items.length;list=items;idx=0;hist=[];played=new Set();save();render();closeViews();play();
   toast(n+' vidéos dans ta liste'+(total&&total>n+(skipped||0)?' (la chaîne en compte '+total+(partial?', chargement interrompu':', plafond '+MAX_CHAN)+')':'')+(skipped?' · '+skipped+' ignorées (écoutées ou masquées)':''),'Annuler',undoReplace);
+}
+/* nettoyage : retire de la liste les vidéos déjà écoutées et celles d'une période masquée (sauf celle en cours) */
+function cleanList(quiet){
+  if(!list.length)return 0;
+  const cur=list[idx];
+  const keep=list.filter(v=>v===cur||!(heard.has(v.id)||hiddenByRule(v,hideRule(v.ch,v.chT))));
+  const n=list.length-keep.length;
+  if(!n){if(!quiet)toast('Rien à nettoyer');return 0}
+  try{localStorage.setItem(LS_PREV,JSON.stringify({list,idx}))}catch(e){}
+  list=keep;idx=Math.max(0,list.indexOf(cur));hist=[];played=new Set();save();render();
+  toast(n+' vidéo'+(n>1?'s':'')+' retirée'+(n>1?'s':'')+' de ta liste','Annuler',undoReplace);
+  return n;
 }
 function undoReplace(){
   try{const p=JSON.parse(localStorage.getItem(LS_PREV));if(p&&Array.isArray(p.list)){list=p.list;idx=Math.min(p.idx||0,Math.max(0,list.length-1));hist=[];played=new Set();save();render();if(list.length)play()}}catch(e){}
@@ -1089,6 +1102,8 @@ if(list[idx])$('#cover').src=`https://i.ytimg.com/vi/${list[idx].id}/hqdefault.j
 resize();requestAnimationFrame(frame);
 const qs=new URLSearchParams(location.search);const shared=qs.get('v')||qs.get('url')||qs.get('text');
 if(shared)setTimeout(()=>{if(getId(shared)&&/youtu\.?be|^[\w-]{11}$/.test(shared))add(shared);else openSearch(shared)},300);
+$('#cleanBtn').onclick=()=>{cleanList(false)};
+try{if(!localStorage.getItem('bg_clean_v14')){localStorage.setItem('bg_clean_v14','1');cleanList(true)}}catch(e){}
 loadApis();
 </script>
 <script src="https://www.youtube.com/iframe_api"></script>
