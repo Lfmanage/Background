@@ -263,6 +263,9 @@ body.playing .eq i{animation:eq .9s ease-in-out infinite}
   </div>
   <div id="nxChan" hidden>
     <div class="chhead"><span id="nxChName"></span><button type="button" id="favBtn" class="favb" aria-pressed="false" hidden>☆ Ajouter aux favoris</button></div>
+    <div class="lab" id="hideInfo"></div>
+    <div class="big"><button type="button" id="hideBtn" hidden>Masquer une période…</button></div>
+    <div id="hideForm" hidden><div class="lab">Du … au … (inclus) :</div><div class="qrow"><input type="date" id="hFrom" aria-label="Du"><input type="date" id="hTo" aria-label="Au"></div><div class="big"><button type="button" class="p" id="hSave">Enregistrer</button><button type="button" id="hOff">Retirer</button></div></div>
     <div id="nxChBtns" hidden>
       <div class="lab">Tout lire de cette chaîne (jusqu'à 1 000 vidéos), dans l'ordre :</div>
       <div class="big"><button type="button" class="p" id="chNew">Récentes d'abord</button><button type="button" id="chOld">Anciennes d'abord</button><button type="button" id="chRand">Aléatoire</button></div>
@@ -440,7 +443,7 @@ function isHeardTxt(v){return heard.has(v.id)?'déjà écoutée':''}
 function replaceList(items,skipped,total,partial){
   try{localStorage.setItem(LS_PREV,JSON.stringify({list,idx}))}catch(e){}
   const n=items.length;list=items;idx=0;hist=[];played=new Set();save();render();closeViews();play();
-  toast(n+' vidéos dans ta liste'+(total&&total>n+(skipped||0)?' (la chaîne en compte '+total+(partial?', chargement interrompu':', plafond '+MAX_CHAN)+')':'')+(skipped?' · '+skipped+' déjà écoutées ignorées':''),'Annuler',undoReplace);
+  toast(n+' vidéos dans ta liste'+(total&&total>n+(skipped||0)?' (la chaîne en compte '+total+(partial?', chargement interrompu':', plafond '+MAX_CHAN)+')':'')+(skipped?' · '+skipped+' ignorées (écoutées ou masquées)':''),'Annuler',undoReplace);
 }
 function undoReplace(){
   try{const p=JSON.parse(localStorage.getItem(LS_PREV));if(p&&Array.isArray(p.list)){list=p.list;idx=Math.min(p.idx||0,Math.max(0,list.length-1));hist=[];played=new Set();save();render();if(list.length)play()}}catch(e){}
@@ -503,7 +506,7 @@ async function suggestNext(){
   try{
     toast('Je cherche la suite…');
     const inList=new Set(list.map(x=>x.id));
-    const ok=v=>v.id!==cur.id&&!heard.has(v.id)&&!inList.has(v.id);
+    const ok=v=>v.id!==cur.id&&!heard.has(v.id)&&!inList.has(v.id)&&!hiddenByRule(v,hideRule(v.ch,v.chT));
     let pick=null;
     /* 1) vidéos de la même chaîne (jusqu'à 200 récentes, tirage au hasard) */
     if(cur.ch){
@@ -653,6 +656,40 @@ let nx={vid:null,artistQ:'',chan:null,chOv:null,favSrc:null};
 /* 5 dernières chaînes regardées */
 const LS_C='bg_chans_v1';let chans=[];
 try{chans=JSON.parse(localStorage.getItem(LS_C)||'[]');if(!Array.isArray(chans))chans=[]}catch(e){chans=[]}
+/* masquage d'une période par chaîne (ex. vidéos déjà vues) */
+const LS_X='bg_hide_v1';let hides=[];
+try{const raw=localStorage.getItem(LS_X);
+  if(raw===null){hides=[{id:'',name:'Un Appel Une Histoire',from:'2026-09-10',to:'2026-10-21'}];localStorage.setItem(LS_X,JSON.stringify(hides))}
+  else hides=JSON.parse(raw)||[]}catch(e){hides=[]}
+if(!Array.isArray(hides))hides=[];
+const saveHides=()=>{try{localStorage.setItem(LS_X,JSON.stringify(hides))}catch(e){}};
+const localDay=s=>{const d=new Date(s);return isNaN(d)?'':d.toLocaleDateString('sv-SE')};
+function hideRule(id,name){
+  const n=(name||'').trim().toLowerCase();
+  const r=hides.find(x=>(x.id&&id&&x.id===id)||(n&&x.name&&x.name.trim().toLowerCase()===n));
+  if(r&&!r.id&&id){r.id=id;saveHides()}
+  return r||null;
+}
+function hiddenByRule(v,r){if(!r||!v||!v.pub)return false;const d=localDay(v.pub);return !!d&&d>=r.from&&d<=r.to}
+const fmtDay=s=>{const d=new Date(s+'T12:00:00');return isNaN(d)?s:d.toLocaleDateString('fr-FR',{day:'numeric',month:'short',year:'numeric'})};
+function updateHideInfo(){
+  const s=nx.favSrc;const r=s?hideRule(s.id,s.name):null;
+  $('#hideInfo').textContent=r?'Période masquée : du '+fmtDay(r.from)+' au '+fmtDay(r.to)+' (les autres vidéos, y compris les futures, restent affichées).':'';
+  $('#hideBtn').hidden=!s;if(!s)$('#hideForm').hidden=true;
+}
+function bindHide(){
+  $('#hideBtn').onclick=()=>{const s=nx.favSrc;if(!s)return;const r=hideRule(s.id,s.name);
+    $('#hFrom').value=r?r.from:'';$('#hTo').value=r?r.to:'';$('#hideForm').hidden=!$('#hideForm').hidden};
+  $('#hSave').onclick=()=>{const s=nx.favSrc;if(!s)return;const f=$('#hFrom').value,t=$('#hTo').value;
+    if(!f||!t||f>t){toast('Choisis deux dates, la première avant la seconde');return}
+    const old=hideRule(s.id,s.name);if(old)hides=hides.filter(x=>x!==old);
+    hides.push({id:s.id,name:s.name||'',from:f,to:t});saveHides();$('#hideForm').hidden=true;reloadChan();toast('Période masquée')};
+  $('#hOff').onclick=()=>{const s=nx.favSrc;if(!s)return;const old=hideRule(s.id,s.name);
+    if(old){hides=hides.filter(x=>x!==old);if(!hides.length&&false){}saveHides()}
+    $('#hideForm').hidden=true;reloadChan();toast('Masquage retiré')};
+}
+function reloadChan(){nx.chan=null;loadChan()}
+
 /* chaînes favorites */
 const LS_F='bg_favs_v1';let favs=[];
 try{favs=JSON.parse(localStorage.getItem(LS_F)||'[]');if(!Array.isArray(favs))favs=[]}catch(e){favs=[]}
@@ -725,13 +762,13 @@ async function loadChan(){
     if(!v||!v.ch){$('#nxChBtns').hidden=true;setMsg(box,"Chaîne introuvable pour cette vidéo.");return}
     src={id:v.ch,name:v.chT};
   }
-  $('#nxChName').textContent=src.name||'Cette chaîne';$('#nxChBtns').hidden=false;nx.favSrc=src;updateFavBtn();
+  $('#nxChName').textContent=src.name||'Cette chaîne';$('#nxChBtns').hidden=false;nx.favSrc=src;updateFavBtn();updateHideInfo();
   if(nx.chan&&nx.chan.id===src.id)return;
   nx.chan={id:src.id};setMsg(box,'Chargement…');
   /* aperçu illimité, sans les vidéos déjà écoutées (70 %) */
-  const chId=src.id;let n=0,shown=0,hidden=0,tok=null,total=0,pages=0;
+  const chId=src.id;let n=0,shown=0,hidden=0,masked=0,tok=null,total=0,pages=0;const rule=hideRule(src.id,src.name);
   const cnt=document.createElement('div');cnt.className='lab';cnt.id='nxCnt';
-  const txt=(more)=>shown+' à écouter'+(total?' sur '+total:'')+(hidden?' · '+hidden+' déjà écoutée'+(hidden>1?'s':'')+' masquée'+(hidden>1?'s':''):'')+(more?' · chargement…':'');
+  const txt=(more)=>shown+' à écouter'+(total?' sur '+total:'')+(hidden?' · '+hidden+' déjà écoutée'+(hidden>1?'s':'')+' masquée'+(hidden>1?'s':''):'')+(masked?' · '+masked+' de la période masquée':'')+(more?' · chargement…':'');
   try{
     do{
       const p=await channelPage(chId,tok);
@@ -739,11 +776,11 @@ async function loadChan(){
       if(pages===0){box.textContent='';if(!p.items.length){setMsg(box,"Cette chaîne n'a pas de vidéos publiques.");return}box.appendChild(cnt)}
       tok=p.next;pages++;if(p.total)total=p.total;
       const fr=document.createDocumentFragment();
-      p.items.forEach(x=>{n++;if(heard.has(x.id)){hidden++;return}shown++;fr.appendChild(resCard(x,shown))});
+      p.items.forEach(x=>{n++;if(heard.has(x.id)){hidden++;return}if(hiddenByRule(x,rule)){masked++;return}shown++;fr.appendChild(resCard(x,shown))});
       box.appendChild(fr);cnt.textContent=txt(!!tok);
     }while(tok&&pages<400);
     cnt.textContent=txt(false);
-    if(!shown)cnt.textContent='Tu as déjà écouté toutes les vidéos de cette chaîne ('+hidden+').';
+    if(!shown)cnt.textContent='Plus rien à afficher : tout est écouté ou dans la période masquée ('+(hidden+masked)+').';
   }catch(e){if(!n)setMsg(box,errMsg(e));else cnt.textContent=txt(false)+' (chargement interrompu : '+errMsg(e)+')'}
 }
 async function playChannel(order){
@@ -751,9 +788,10 @@ async function playChannel(order){
   const st=$('#nxProg');const btns=$('#nxChBtns').querySelectorAll('button');
   btns.forEach(b=>b.disabled=true);st.textContent='Chargement…';
   try{
-    const r=await channelAll(chId,(n,t)=>{st.textContent='Chargement… '+n+(t?' sur '+t:'')+' vidéos'},x=>heard.has(x.id));
+    const fs=nx.favSrc,rule=fs?hideRule(fs.id,fs.name):null;
+    const r=await channelAll(chId,(n,t)=>{st.textContent='Chargement… '+n+(t?' sur '+t:'')+' vidéos'},x=>heard.has(x.id)||hiddenByRule(x,rule));
     const all=r.items;
-    if(!all.length){st.textContent=r.skipped?'Tu as déjà écouté toutes les vidéos de cette chaîne.':'Aucune vidéo trouvée.';return}
+    if(!all.length){st.textContent=r.skipped?'Plus rien à lire : tout est écouté ou dans la période masquée.':'Aucune vidéo trouvée.';return}
     if(order==='old')all.reverse();else if(order==='rand')shuffleArr(all);
     st.textContent='';replaceList(all,r.skipped,r.total,r.partial);
   }catch(e){st.textContent=errMsg(e)}
@@ -1024,6 +1062,7 @@ $('#paste').onclick=async()=>{
 $('#shuf').onclick=()=>{shuffle=!shuffle;$('#shuf').setAttribute('aria-pressed',String(shuffle));played=new Set();save();toast(shuffle?'Lecture aléatoire activée':'Lecture dans l\'ordre')};
 $('#shuf').setAttribute('aria-pressed',String(shuffle));
 
+bindHide();
 $('#favBtn').onclick=()=>{const s=nx.favSrc;if(s)toggleFav(s.id,s.name)};
 setPlaying(false);render();renderRecent();setMode(null);
 if(list[idx])$('#cover').src=`https://i.ytimg.com/vi/${list[idx].id}/hqdefault.jpg`;
