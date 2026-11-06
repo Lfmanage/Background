@@ -564,8 +564,9 @@ function resCard(v,n){
   if(v.dur){const s=document.createElement('span');s.textContent=v.dur;th.appendChild(s)}
   const tx=document.createElement('div');tx.className='tx';
   const tt=document.createElement('div');tt.className='tt';tt.textContent=(n?n+'. ':'')+v.title;
-  const ch=document.createElement('div');ch.className='ch';ch.textContent=[v.chT||'',fmtDate(v.pub),isHeard?'déjà écoutée':''].filter(Boolean).join(' · ');
+  const ch=document.createElement('div');ch.className='ch';ch.textContent=[v.chT||'',isHeard?'déjà écoutée':''].filter(Boolean).join(' · ');
   tx.append(tt,ch);
+  if(v.pub){const dt=document.createElement('div');dt.className='ch dt';dt.textContent=fmtDate(v.pub);tx.appendChild(dt)}
   const ac=document.createElement('div');ac.className='ac';
   const bp=document.createElement('button');bp.type='button';bp.className='rb p';bp.setAttribute('aria-label','Lancer');bp.innerHTML=svgI('<path d="M8 5.5v13l11-6.5z"/>',true);
   bp.onclick=()=>{addItem(v,{playNow:true});closeViews()};
@@ -641,8 +642,20 @@ async function loadChan(){
   $('#nxChName').textContent=v.chT||'Cette chaîne';$('#nxChBtns').hidden=false;
   if(nx.chan&&nx.chan.id===v.ch)return;
   nx.chan={id:v.ch};setMsg(box,'Chargement…');
-  try{const p=await channelPage(v.ch);showResults(box,p.items,"Cette chaîne n'a pas de vidéos publiques.")}
-  catch(e){setMsg(box,errMsg(e))}
+  /* aperçu illimité : toutes les vidéos, page après page */
+  const chId=v.ch;let n=0,tok=null,total=0,pages=0;
+  const cnt=document.createElement('div');cnt.className='lab';cnt.id='nxCnt';
+  try{
+    do{
+      const p=await channelPage(chId,tok);
+      if(!nx.chan||nx.chan.id!==chId)return; /* l'utilisateur a changé de chaîne */
+      if(pages===0){box.textContent='';if(!p.items.length){setMsg(box,"Cette chaîne n'a pas de vidéos publiques.");return}box.appendChild(cnt)}
+      tok=p.next;pages++;if(p.total)total=p.total;
+      const fr=document.createDocumentFragment();p.items.forEach(x=>{n++;fr.appendChild(resCard(x,n))});box.appendChild(fr);
+      cnt.textContent=n+(total?' vidéos sur '+total:' vidéos')+(tok?' · chargement…':'');
+    }while(tok&&pages<400);
+    cnt.textContent=n+(total&&total>n?' vidéos sur '+total:' vidéos');
+  }catch(e){if(!n)setMsg(box,errMsg(e));else cnt.textContent=n+' vidéos (chargement interrompu : '+errMsg(e)+')'}
 }
 async function playChannel(order){
   const v=list[idx];if(!v||!v.ch)return;
