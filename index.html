@@ -451,20 +451,26 @@ function setMode(m){engine=m;const el=$('#mode');
   else{el.textContent='Prêt';el.className='';$('#cover').style.display='none';$('#ytbox').style.visibility='hidden'}}
 
 /* ================= Lecture ================= */
-let token=0;
+let token=0,pipedDownUntil=0;
+/* Lance la lecture. Sur iPhone, la lecture YouTube ne démarre toute seule que si elle part
+   tout de suite après ton toucher : on la lance donc immédiatement, sans attendre les
+   serveurs audio, puis on passe en « Audio iPhone » seulement si ça marche. */
 async function play(){
   const v=list[idx];if(!v)return;const my=++token;userPaused=false;
   $('#cover').src=`https://i.ytimg.com/vi/${v.id}/hqdefault.jpg`;meta();setPainting(v.id);touchChan(v);
-  if($('#audioMode').checked){
+  if($('#audioMode').checked&&Date.now()>pipedDownUntil){
     setMode('loading');
-    if(ytReady)try{yt.pauseVideo()}catch(e){}
+    if(ytReady)try{yt.loadVideoById(v.id)}catch(e){}
     au.play().catch(()=>{});
     const s=await audioUrl(v.id);if(my!==token)return;
-    if(s){setMode('audio');au.src=s.url;au.play().catch(()=>{});return}
+    if(s){if(ytReady)try{yt.stopVideo()}catch(e){}setMode('audio');au.src=s.url;au.play().catch(()=>{});return}
+    pipedDownUntil=Date.now()+15*60000; /* serveurs audio en panne : on ne réessaie pas tout de suite */
+    setMode('yt');syncYtState();return;
   }
   au.pause();au.removeAttribute('src');setMode('yt');
   if(ytReady)yt.loadVideoById(v.id);
 }
+function syncYtState(){try{if(engine==='yt'&&ytReady)setPlaying(yt.getPlayerState()===YT.PlayerState.PLAYING)}catch(e){}}
 /* prochaine vidéo NON écoutée de la liste (-1 s'il n'y en a plus) */
 function pickNext(){
   if(!list.length)return -1;
@@ -555,11 +561,11 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)tryResume()
 
 window.onYouTubeIframeAPIReady=()=>{
   yt=new YT.Player('player',{host:'https://www.youtube-nocookie.com',playerVars:{playsinline:1,rel:0},
-    events:{onReady:()=>{ytReady=true;if(engine==='yt'&&list[idx])yt.loadVideoById(list[idx].id)},
+    events:{onReady:()=>{ytReady=true;if((engine==='yt'||engine==='loading')&&list[idx])yt.loadVideoById(list[idx].id)},
       onStateChange:e=>{if(engine!=='yt')return;setPlaying(e.data===YT.PlayerState.PLAYING);
         if(e.data===YT.PlayerState.ENDED){endHeard(yt.getDuration());next()}
         if(e.data===YT.PlayerState.PAUSED&&document.hidden)tryResume()}}});
-  setInterval(()=>{if(engine==='yt'&&ytReady&&yt.getDuration){const d=yt.getDuration();if(d){if(playing)checkHeard(yt.getCurrentTime(),d);$('#bar div').style.width=(yt.getCurrentTime()/d*100)+'%'}}},1000);
+  setInterval(()=>{if(engine==='yt'&&ytReady&&yt.getDuration){syncYtState();const d=yt.getDuration();if(d){if(playing)checkHeard(yt.getCurrentTime(),d);$('#bar div').style.width=(yt.getCurrentTime()/d*100)+'%'}}},1000);
 };
 
 /* ================= Écrans : recherche, « et ensuite ? », réglages ================= */
