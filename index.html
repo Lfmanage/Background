@@ -335,7 +335,7 @@ header p{font-size:9px;letter-spacing:1.2px;margin-top:0}
   <div class="big"><button type="button" id="clearListBtn">Supprimer toute ma liste</button></div>
   <div class="big"><button type="button" id="undoBtn">Revenir à ma liste d'avant</button></div>
   <div class="big"><button type="button" id="cleanBtn">Nettoyer ma liste (écoutées et masquées)</button></div>
-  <div class="lab" id="ver">Version 25</div>
+  <div class="lab" id="ver">Version 26</div>
   <div class="steps">La clé sert à la recherche, aux vidéos d'une même chaîne et aux titres. Elle reste dans ton iPhone, elle n'est jamais mise en ligne.<br><br><b>Pour l'obtenir :</b> console.cloud.google.com → nouveau projet → « API et services » → activer « YouTube Data API v3 » → Identifiants → Créer une clé API. Restreins-la au site <b>https://lfmanage.github.io/*</b> et à l'API YouTube Data v3.</div>
 </div></section>
 
@@ -436,19 +436,25 @@ async function searchVideos(q,o){
   for(const a of l.slice(0,6)){
     try{const r=await fetchT(a+'/search?q='+encodeURIComponent(q)+'&filter=videos',7000);if(!r.ok)continue;
       const j=await r.json();
-      const out=(j.items||[]).filter(x=>/watch\?v=/.test(x.url||'')).map(x=>({id:x.url.split('v=')[1].slice(0,11),title:x.title||'',chT:x.uploaderName||'',dur:x.duration>0?secDur(x.duration):''}));
+      const out=(j.items||[]).filter(x=>/watch\?v=/.test(x.url||'')).map(x=>({id:x.url.split('v=')[1].slice(0,11),title:x.title||'',chT:x.uploaderName||'',ch:((/\/channel\/(UC[\w-]{22})/.exec(x.uploaderUrl||''))||[])[1]||'',pub:x.uploaded>0?new Date(x.uploaded).toISOString():'',dur:x.duration>0?secDur(x.duration):''}));
       if(out.length)return out}catch(e){}
   }
   throw Object.assign(new Error('nokey'),{reason:'nokey'});
 }
 
 /* ===== sans clé : serveurs Piped publics (peuvent tomber en panne) ===== */
-async function keylessChannelId(videoId){
+async function keylessChannelId(videoId,title){
   const l=await loadApis();
   for(const a of l.slice(0,6)){
     try{const r=await fetchT(a+'/streams/'+videoId,7000);if(!r.ok)continue;const j=await r.json();
       const m=/\/channel\/(UC[\w-]{22})/.exec(j.uploaderUrl||'');if(m){goodApi=a;return{id:m[1],name:j.uploader||''}}}catch(e){}
   }
+  /* 2e méthode : chercher la vidéo par son titre et lire la chaîne dans le résultat */
+  if(title){for(const a of l.slice(0,6)){
+    try{const r=await fetchT(a+'/search?q='+encodeURIComponent(title)+'&filter=videos',8000);if(!r.ok)continue;const j=await r.json();
+      const x=(j.items||[]).find(y=>(y.url||'').indexOf(videoId)>=0);const c=x&&/\/channel\/(UC[\w-]{22})/.exec(x.uploaderUrl||'');
+      if(c){goodApi=a;return{id:c[1],name:x.uploaderName||''}}}catch(e){}
+  }}
   return null;
 }
 async function keylessRss(chId){
@@ -909,7 +915,7 @@ async function loadChan(){
   const v=list[idx];const box=$('#nxChRes');
   let src=nx.chOv;
   if(!src){
-    if(!API_KEY&&v&&!v.ch){setMsg(box,'Recherche de la chaîne…');const c=await keylessChannelId(v.id);if(c){v.ch=c.id;if(c.name)v.chT=c.name;save()}}
+    if(!API_KEY&&v&&!v.ch){setMsg(box,'Recherche de la chaîne…');if(!v.title||/^Vidéo [\w-]{11}$/.test(v.title))await enrich(v);const c=await keylessChannelId(v.id,v.title);if(c){v.ch=c.id;if(c.name)v.chT=c.name;save()}}
     if(v&&!v.ch)await enrich(v);
     if(!v||!v.ch){$('#nxChBtns').hidden=true;setMsg(box,API_KEY?"Chaîne introuvable pour cette vidéo.":errMsg({reason:'keyless'}),API_KEY?null:()=>loadChan());return}
     src={id:v.ch,name:v.chT};
