@@ -168,6 +168,8 @@ body.playing .eq i{animation:eq .9s ease-in-out infinite}
 .it .t small{display:block;margin-top:2px;font-size:11.5px;color:var(--mut)}
 .it .t small:empty{display:none}
 .it .tt2{overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.more{width:100%;min-height:48px;margin:6px 0 14px;border-radius:14px;border:1px solid rgba(244,180,95,.6);background:rgba(232,130,58,.12);color:var(--acc2);font-size:14px;font-weight:700;font-family:inherit}
+.more:disabled{opacity:.6}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -233,6 +235,7 @@ body.playing .eq i{animation:eq .9s ease-in-out infinite}
     </div>
   </div>
   <div class="chips" id="sugs"></div>
+  <div class="tabs" id="sord"><button type="button" data-o="date" aria-pressed="true">Plus récentes</button><button type="button" data-o="relevance" aria-pressed="false">Pertinence</button></div>
   <div id="sres"></div>
 </div></section>
 
@@ -341,12 +344,15 @@ function errMsg(e){const r=e&&e.reason;
   if(r==='net')return "Impossible de joindre YouTube. Vérifie ta connexion.";
   return "Erreur YouTube ("+(r||'inconnue')+").";}
 
-async function searchVideos(q){
+async function searchVideos(q,o){
+  o=o||{};
   if(API_KEY){
-    const j=await yapi('/search',{part:'snippet',type:'video',maxResults:15,q,regionCode:'FR'});
+    const sp={part:'snippet',type:'video',maxResults:o.max||15,q,regionCode:'FR'};if(o.order)sp.order=o.order;if(o.token)sp.pageToken=o.token;
+    const j=await yapi('/search',sp);
     const base=(j.items||[]).filter(i=>i.id&&i.id.videoId).map(i=>({id:i.id.videoId,title:dec(i.snippet.title),ch:i.snippet.channelId,chT:dec(i.snippet.channelTitle),pub:i.snippet.publishedAt||''}));
     if(base.length){try{const d=await yapi('/videos',{part:'contentDetails',id:base.map(x=>x.id).join(',')});
       const m={};(d.items||[]).forEach(v=>{m[v.id]=isoDur(v.contentDetails&&v.contentDetails.duration)});base.forEach(x=>{x.dur=m[x.id]||''})}catch(e){}}
+    base.next=j.nextPageToken||null;
     return base;
   }
   /* secours sans clé : serveurs Piped publics (peut tomber en panne) */
@@ -591,13 +597,28 @@ function openSearch(q){
   if(q)doSearch();else setMsg($('#sres'),API_KEY?'Tape le nom d\'un artiste, d\'une chaîne ou d\'une vidéo.':errMsg({reason:'nokey'})+' Sans clé, la recherche marche parfois via des serveurs publics.');
   i.focus();
 }
-async function doSearch(){
-  const q=$('#sq').value.trim();if(!q)return;
-  if(/youtu\.?be/.test(q)&&getId(q)){closeViews();add(q);return}
-  $('#sugs').textContent='';const box=$('#sres');setMsg(box,'Recherche…');
-  try{const items=await searchVideos(q);if($('#sq').value.trim()!==q)return;showResults(box,items,'Aucun résultat.')}
-  catch(e){setMsg(box,errMsg(e))}
+let searchOrder='date',sQ='',sNext=null,sCount=0;
+try{searchOrder=localStorage.getItem('bg_so_v1')||'date'}catch(e){}
+function setSOrder(o){searchOrder=o;try{localStorage.setItem('bg_so_v1',o)}catch(e){}
+  document.querySelectorAll('#sord button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.o===o)))}
+async function doSearch(more){
+  const q=more===true?sQ:$('#sq').value.trim();if(!q)return;
+  if(more!==true&&/youtu\.?be/.test(q)&&getId(q)){closeViews();add(q);return}
+  const box=$('#sres');
+  if(more!==true){$('#sugs').textContent='';sQ=q;sNext=null;sCount=0;setMsg(box,'Recherche…')}
+  else{const mb=$('#sMore');if(mb){mb.disabled=true;mb.textContent='Chargement…'}}
+  try{
+    const items=await searchVideos(q,{order:searchOrder,max:50,token:more===true?sNext:null});
+    if(more!==true&&$('#sq').value.trim()!==q)return;
+    if(more!==true){box.textContent='';if(!items.length){setMsg(box,'Aucun résultat.');return}}
+    const old=$('#sMore');if(old)old.remove();
+    const fr=document.createDocumentFragment();items.forEach(v=>{sCount++;fr.appendChild(resCard(v,sCount))});box.appendChild(fr);
+    sNext=items.next||null;
+    if(sNext){const mb=document.createElement('button');mb.type='button';mb.id='sMore';mb.className='more';mb.textContent='Voir plus de résultats';mb.onclick=()=>doSearch(true);box.appendChild(mb)}
+  }catch(e){if(more===true){const mb=$('#sMore');if(mb){mb.disabled=false;mb.textContent='Voir plus de résultats'}toast(errMsg(e))}else setMsg(box,errMsg(e))}
 }
+document.querySelectorAll('#sord button').forEach(b=>b.onclick=()=>{setSOrder(b.dataset.o);if($('#sq').value.trim())doSearch()});
+setSOrder(searchOrder);
 $('#sq').addEventListener('input',()=>{
   clearTimeout(sgT);const q=$('#sq').value.trim();if(q.length<2){$('#sugs').textContent='';return}
   sgT=setTimeout(()=>suggest(q,arr=>{if($('#sq').value.trim()!==q)return;const box=$('#sugs');box.textContent='';
