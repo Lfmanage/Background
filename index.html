@@ -332,8 +332,9 @@ header p{font-size:9px;letter-spacing:1.2px;margin-top:0}
   <div class="big"><button type="button" class="p" id="kSave">Enregistrer</button><button type="button" id="kTest">Tester</button></div>
   <div class="lab" id="kMsg"></div>
   <div class="lab" id="hCount"></div><div class="big"><button type="button" id="hClear">Effacer l'historique d'écoute</button></div>
+  <div class="big"><button type="button" id="undoBtn">Revenir à ma liste d'avant</button></div>
   <div class="big"><button type="button" id="cleanBtn">Nettoyer ma liste (écoutées et masquées)</button></div>
-  <div class="lab" id="ver">Version 21</div>
+  <div class="lab" id="ver">Version 22</div>
   <div class="steps">La clé sert à la recherche, aux vidéos d'une même chaîne et aux titres. Elle reste dans ton iPhone, elle n'est jamais mise en ligne.<br><br><b>Pour l'obtenir :</b> console.cloud.google.com → nouveau projet → « API et services » → activer « YouTube Data API v3 » → Identifiants → Créer une clé API. Restreins-la au site <b>https://lfmanage.github.io/*</b> et à l'API YouTube Data v3.</div>
 </div></section>
 
@@ -400,7 +401,12 @@ const API='https://www.googleapis.com/youtube/v3';
 async function yapi(path,params){
   if(!API_KEY)throw Object.assign(new Error('nokey'),{reason:'nokey'});
   const u=new URL(API+path);const p=Object.assign({},params,{key:API_KEY});Object.keys(p).forEach(k=>u.searchParams.set(k,p[k]));
-  let r;try{r=await fetchT(u.toString(),12000)}catch(e){throw Object.assign(new Error('net'),{reason:'net'})}
+  /* jusqu'à 3 essais si le réseau a un raté (5G qui passe, etc.) */
+  let r,last='';
+  for(let a=0;a<3&&!r;a++){
+    try{r=await fetchT(u.toString(),15000)}catch(e){last=String((e&&e.message)||e||'');if(a<2)await new Promise(z=>setTimeout(z,a?1500:500))}
+  }
+  if(!r)throw Object.assign(new Error('net'),{reason:'net',detail:last});
   const j=await r.json().catch(()=>({}));
   if(!r.ok){const reason=(j.error&&j.error.errors&&j.error.errors[0]&&j.error.errors[0].reason)||('http'+r.status);throw Object.assign(new Error(reason),{reason})}
   return j;
@@ -409,7 +415,7 @@ function errMsg(e){const r=e&&e.reason;
   if(r==='nokey')return "Ajoute ta clé YouTube dans les réglages (icône en haut à droite) pour utiliser la recherche.";
   if(r==='quotaExceeded'||r==='dailyLimitExceeded')return "Le quota gratuit du jour est atteint. Il revient demain.";
   if(r==='keyInvalid'||r==='ipRefererBlocked'||r==='forbidden'||r==='accessNotConfigured'||/^http40[03]$/.test(r||''))return "La clé est refusée. Vérifie-la dans les réglages.";
-  if(r==='net')return "Impossible de joindre YouTube. Vérifie ta connexion.";
+  if(r==='net')return "Impossible de joindre YouTube"+(e&&e.detail?' ('+e.detail+')':'')+". Réessaie dans un instant.";
   return "Erreur YouTube ("+(r||'inconnue')+").";}
 
 async function searchVideos(q,o){
@@ -696,7 +702,9 @@ const VIEWS=['vSearch','vNext','vSet'];
 function openView(id){VIEWS.forEach(v=>$('#'+v).classList.toggle('on',v===id));document.body.style.overflow='hidden';$('#'+id).scrollTop=0}
 function closeViews(){VIEWS.forEach(v=>$('#'+v).classList.remove('on'));document.body.style.overflow=''}
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=closeViews);
-function setMsg(box,t){box.textContent='';const d=document.createElement('div');d.className='msg';d.textContent=t;box.appendChild(d)}
+function setMsg(box,t,retry){box.textContent='';const d=document.createElement('div');d.className='msg';d.textContent=t;
+  if(retry){const b=document.createElement('button');b.type='button';b.className='more';b.style.marginTop='10px';b.textContent='↻ Réessayer';b.onclick=retry;d.appendChild(b)}
+  box.appendChild(d)}
 function svgI(p,fill){return `<svg viewBox="0 0 24 24" ${fill?'fill="currentColor"':'fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"'} aria-hidden="true">${p}</svg>`}
 function resCard(v,n){
   const d=document.createElement('div');d.className='res';
@@ -752,7 +760,7 @@ async function doSearch(more){
     const fr=document.createDocumentFragment();items.forEach(v=>{sCount++;fr.appendChild(resCard(v,sCount))});box.appendChild(fr);
     sNext=items.next||null;
     if(sNext){const mb=document.createElement('button');mb.type='button';mb.id='sMore';mb.className='more';mb.textContent='Voir plus de résultats';mb.onclick=()=>doSearch(true);box.appendChild(mb)}
-  }catch(e){if(more===true){const mb=$('#sMore');if(mb){mb.disabled=false;mb.textContent='Voir plus de résultats'}toast(errMsg(e))}else setMsg(box,errMsg(e))}
+  }catch(e){if(more===true){const mb=$('#sMore');if(mb){mb.disabled=false;mb.textContent='Voir plus de résultats'}toast(errMsg(e))}else setMsg(box,errMsg(e),()=>doSearch())}
 }
 document.querySelectorAll('#sord button').forEach(b=>b.onclick=()=>{setSOrder(b.dataset.o);if($('#sq').value.trim())doSearch()});
 setSOrder(searchOrder);
@@ -864,7 +872,7 @@ async function openNext(){
 async function runArtist(){
   const q=$('#nxQ').value.trim();if(!q)return;const box=$('#nxRes');setMsg(box,'Recherche…');
   try{const items=await searchVideos(q);showResults(box,items.filter(x=>x.id!==nx.vid),'Aucun résultat.')}
-  catch(e){setMsg(box,errMsg(e))}
+  catch(e){setMsg(box,errMsg(e),()=>runArtist())}
 }
 async function loadChan(){
   const v=list[idx];const box=$('#nxChRes');
@@ -894,10 +902,11 @@ async function loadChan(){
     }while(tok&&pages<400);
     cnt.textContent=txt(false);
     if(!shown)cnt.textContent='Plus rien à afficher : tout est écouté ou dans la période masquée ('+(hidden+masked)+').';
-  }catch(e){if(!n)setMsg(box,errMsg(e));else cnt.textContent=txt(false)+' (chargement interrompu : '+errMsg(e)+')'}
+  }catch(e){if(!n){nx.chan=null;setMsg(box,errMsg(e),reloadChan)}else cnt.textContent=txt(false)+' (chargement interrompu : '+errMsg(e)+')'}
 }
 async function playChannel(order){
   const chId=nx.chan&&nx.chan.id;if(!chId)return;
+  if(!confirm("Remplacer ta liste actuelle par les vidéos de cette chaîne (jusqu'à 1 000) ?\n\nTu pourras revenir en arrière avec « Revenir à ma liste d'avant » dans les réglages."))return;
   const st=$('#nxProg');const btns=$('#nxChBtns').querySelectorAll('button');
   btns.forEach(b=>b.disabled=true);st.textContent='Chargement…';
   try{
@@ -1182,6 +1191,7 @@ if(list[idx])$('#cover').src=`https://i.ytimg.com/vi/${list[idx].id}/hqdefault.j
 resize();requestAnimationFrame(frame);
 const qs=new URLSearchParams(location.search);const shared=qs.get('v')||qs.get('url')||qs.get('text');
 if(shared)setTimeout(()=>{if(getId(shared)&&/youtu\.?be|^[\w-]{11}$/.test(shared))add(shared);else openSearch(shared)},300);
+$('#undoBtn').onclick=()=>{try{if(!localStorage.getItem(LS_PREV)){toast('Rien à restaurer');return}}catch(e){}if(confirm("Revenir à ta liste d'avant le dernier remplacement ou nettoyage ?")){undoReplace();closeViews()}};
 $('#cleanBtn').onclick=()=>{cleanList(false)};
 try{if(!localStorage.getItem('bg_clean_v14')){localStorage.setItem('bg_clean_v14','1');cleanList(true)}}catch(e){}
 $('#nativeFs').checked=nativeFs();
