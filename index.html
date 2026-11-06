@@ -332,9 +332,10 @@ header p{font-size:9px;letter-spacing:1.2px;margin-top:0}
   <div class="big"><button type="button" class="p" id="kSave">Enregistrer</button><button type="button" id="kTest">Tester</button></div>
   <div class="lab" id="kMsg"></div>
   <div class="lab" id="hCount"></div><div class="big"><button type="button" id="hClear">Effacer l'historique d'écoute</button></div>
+  <div class="big"><button type="button" id="clearListBtn">Supprimer toute ma liste</button></div>
   <div class="big"><button type="button" id="undoBtn">Revenir à ma liste d'avant</button></div>
   <div class="big"><button type="button" id="cleanBtn">Nettoyer ma liste (écoutées et masquées)</button></div>
-  <div class="lab" id="ver">Version 23</div>
+  <div class="lab" id="ver">Version 24</div>
   <div class="steps">La clé sert à la recherche, aux vidéos d'une même chaîne et aux titres. Elle reste dans ton iPhone, elle n'est jamais mise en ligne.<br><br><b>Pour l'obtenir :</b> console.cloud.google.com → nouveau projet → « API et services » → activer « YouTube Data API v3 » → Identifiants → Créer une clé API. Restreins-la au site <b>https://lfmanage.github.io/*</b> et à l'API YouTube Data v3.</div>
 </div></section>
 
@@ -1188,6 +1189,13 @@ resize();requestAnimationFrame(frame);
 const qs=new URLSearchParams(location.search);const shared=qs.get('v')||qs.get('url')||qs.get('text');
 if(shared)setTimeout(()=>{if(getId(shared)&&/youtu\.?be|^[\w-]{11}$/.test(shared))add(shared);else openSearch(shared)},300);
 $('#undoBtn').onclick=()=>{try{if(!localStorage.getItem(LS_PREV)){toast('Rien à restaurer');return}}catch(e){}if(confirm("Revenir à ta liste d'avant le dernier remplacement ou nettoyage ?")){undoReplace();closeViews()}};
+$('#clearListBtn').onclick=()=>{
+  if(!list.length){toast('Ta liste est déjà vide');return}
+  if(!confirm('Supprimer toute ta liste ('+list.length+' vidéo'+(list.length>1?'s':'')+') ?\n\nTu pourras annuler juste après.'))return;
+  try{localStorage.setItem(LS_PREV,JSON.stringify({list,idx}))}catch(e){}
+  if(playing)toggle();
+  const n=list.length;list=[];idx=0;hist=[];played=new Set();save();render();closeViews();
+  toast('Liste supprimée ('+n+' vidéo'+(n>1?'s':'')+')','Annuler',undoReplace)};
 $('#cleanBtn').onclick=()=>{cleanList(false)};
 try{if(!localStorage.getItem('bg_clean_v14')){localStorage.setItem('bg_clean_v14','1');cleanList(true)}}catch(e){}
 $('#nativeFs').checked=nativeFs();
