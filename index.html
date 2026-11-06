@@ -296,13 +296,14 @@ body.playing .eq i{animation:eq .9s ease-in-out infinite}
   <label class="tg"><span>Suggestions automatiques<small>À la fin, lance une vidéo du même artiste</small></span><input type="checkbox" class="sw" id="autoSug" checked><span class="knob"></span></label>
   <label class="tg"><span>Crépitement du feu<small>Petit bruit de cheminée en fond</small></span><input type="checkbox" class="sw" id="crackle"><span class="knob"></span></label>
 </div>
+  <div class="opts" style="margin:0 0 8px"><label class="tg"><span>Lecteur iPhone au lancement<small>Ouvre la vidéo dans le lecteur plein écran d'iPhone (avec image dans l'image). Rouvre l'appli après changement.</small></span><input type="checkbox" class="sw" id="nativeFs" checked><span class="knob"></span></label></div>
   <label for="kIn">Clé YouTube (gratuite)</label>
   <input type="text" id="kIn" placeholder="AIza…" autocomplete="off" autocapitalize="off" spellcheck="false">
   <div class="big"><button type="button" class="p" id="kSave">Enregistrer</button><button type="button" id="kTest">Tester</button></div>
   <div class="lab" id="kMsg"></div>
   <div class="lab" id="hCount"></div><div class="big"><button type="button" id="hClear">Effacer l'historique d'écoute</button></div>
   <div class="big"><button type="button" id="cleanBtn">Nettoyer ma liste (écoutées et masquées)</button></div>
-  <div class="lab" id="ver">Version 18</div>
+  <div class="lab" id="ver">Version 19</div>
   <div class="steps">La clé sert à la recherche, aux vidéos d'une même chaîne et aux titres. Elle reste dans ton iPhone, elle n'est jamais mise en ligne.<br><br><b>Pour l'obtenir :</b> console.cloud.google.com → nouveau projet → « API et services » → activer « YouTube Data API v3 » → Identifiants → Créer une clé API. Restreins-la au site <b>https://lfmanage.github.io/*</b> et à l'API YouTube Data v3.</div>
 </div></section>
 
@@ -648,8 +649,11 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden){tryResume(
 window.addEventListener('pagehide',()=>flushPos());
 function flushPos(){const cv=list[idx];if(!cv)return;try{const t=engine==='audio'?au.currentTime:(ytReady&&yt.getCurrentTime?yt.getCurrentTime():0);if(t>3)savePos(cv.id,t,true)}catch(e){}}
 
+/* lecteur iPhone : sans « playsinline », iOS ouvre la vidéo dans son lecteur plein écran (avec image dans l'image) */
+const LS_N='bg_native_v1';
+function nativeFs(){try{return localStorage.getItem(LS_N)!=='0'}catch(e){return true}}
 window.onYouTubeIframeAPIReady=()=>{
-  yt=new YT.Player('player',{host:'https://www.youtube-nocookie.com',playerVars:{playsinline:1,rel:0},
+  yt=new YT.Player('player',{host:'https://www.youtube-nocookie.com',playerVars:{playsinline:nativeFs()?0:1,rel:0},
     events:{onReady:()=>{ytReady=true;if((engine==='yt'||engine==='loading')&&list[idx])ytLoad(list[idx].id,curStart)},
       onStateChange:e=>{if(engine!=='yt')return;setPlaying(e.data===YT.PlayerState.PLAYING);
         if(e.data===YT.PlayerState.ENDED){endHeard(yt.getDuration());savePos((list[idx]||{}).id,0,true);next(true)}
@@ -1150,6 +1154,8 @@ const qs=new URLSearchParams(location.search);const shared=qs.get('v')||qs.get('
 if(shared)setTimeout(()=>{if(getId(shared)&&/youtu\.?be|^[\w-]{11}$/.test(shared))add(shared);else openSearch(shared)},300);
 $('#cleanBtn').onclick=()=>{cleanList(false)};
 try{if(!localStorage.getItem('bg_clean_v14')){localStorage.setItem('bg_clean_v14','1');cleanList(true)}}catch(e){}
+$('#nativeFs').checked=nativeFs();
+$('#nativeFs').onchange=()=>{try{localStorage.setItem(LS_N,$('#nativeFs').checked?'1':'0')}catch(e){}toast('Ferme puis rouvre l\'appli pour appliquer')};
 autoResume();
 loadApis();
 </script>
