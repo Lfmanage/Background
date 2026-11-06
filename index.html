@@ -283,7 +283,9 @@ try{list=JSON.parse(localStorage.getItem(LS_L))||[];idx=+localStorage.getItem(LS
   heard=new Set(JSON.parse(localStorage.getItem(LS_H)||'[]'))}catch(e){}
 function saveHeard(){try{localStorage.setItem(LS_H,JSON.stringify([...heard].slice(-5000)))}catch(e){}}
 function markHeard(id){if(!id||heard.has(id))return;heard.add(id);clearTimeout(heardT);heardT=setTimeout(saveHeard,1200);render()}
-function checkHeard(t,d){const v=list[idx];if(!v||heard.has(v.id))return;if(d&&t>=d*.7)markHeard(v.id)}
+const MIN_HEARD=420; /* seules les vidéos de plus de 7 min sont suivies */
+function checkHeard(t,d){const v=list[idx];if(!v||heard.has(v.id)||!d||d<=MIN_HEARD)return;if(t>=d*.7)markHeard(v.id)}
+function endHeard(d){const v=list[idx];if(v&&d>MIN_HEARD)markHeard(v.id)}
 if(!Array.isArray(list))list=[];
 if(idx>=list.length||idx<0)idx=0;
 const save=()=>{try{localStorage.setItem(LS_L,JSON.stringify(list));localStorage.setItem(LS_P,idx);
@@ -460,24 +462,33 @@ function next(){
   if(n>=0){hist.push(idx);if(hist.length>300)hist.shift();idx=n;save();render();play();return}
   if($('#autoSug').checked)suggestNext();else toast("Plus de vidéo nouvelle dans ta liste");
 }
-/* suggestion automatique : même artiste / même chaîne, jamais déjà écoutée */
-let sugBusy=false,sugQuery='',sugPool=[];
+/* suggestion automatique : d'abord la MÊME CHAÎNE (au hasard), sinon même artiste */
+let sugBusy=false,sugKey='',sugPool=[];
 async function suggestNext(){
   if(sugBusy)return;const cur=list[idx];if(!cur)return;sugBusy=true;
   try{
-    const q=(cur.sug&&sugQuery)?sugQuery:guessArtist(cur);
-    if(!q){toast("Pas assez d'infos pour trouver une suite");return}
-    if(q!==sugQuery){sugQuery=q;sugPool=[]}
     toast('Je cherche la suite…');
     const inList=new Set(list.map(x=>x.id));
     const ok=v=>v.id!==cur.id&&!heard.has(v.id)&&!inList.has(v.id);
-    sugPool=sugPool.filter(ok);
-    if(!sugPool.length){
-      sugPool=(await searchVideos(q)).filter(ok);
-      if(!sugPool.length&&cur.chT&&cur.chT!==q)sugPool=(await searchVideos(cur.chT)).filter(ok);
+    let pick=null;
+    /* 1) vidéos de la même chaîne (jusqu'à 200 récentes, tirage au hasard) */
+    if(cur.ch){
+      if(sugKey!=='c:'+cur.ch){sugKey='c:'+cur.ch;sugPool=[];
+        try{let tok=null;for(let p=0;p<4;p++){const r=await channelPage(cur.ch,tok);sugPool=sugPool.concat(r.items);tok=r.next;if(!tok)break}}catch(e){sugPool=[];sugKey=''}}
+      sugPool=sugPool.filter(ok);
+      if(sugPool.length)pick=sugPool.splice(Math.floor(Math.random()*sugPool.length),1)[0];
     }
-    if(!sugPool.length){toast('Aucune nouvelle vidéo trouvée');return}
-    const v=itemFrom(sugPool.shift());v.sug=1;
+    /* 2) sinon : recherche du même artiste / nom de chaîne */
+    if(!pick){
+      const q=guessArtist(cur)||cur.chT;
+      if(!q){toast("Pas assez d'infos pour trouver une suite");return}
+      if(sugKey!=='q:'+q){sugKey='q:'+q;sugPool=[]}
+      sugPool=sugPool.filter(ok);
+      if(!sugPool.length){sugPool=(await searchVideos(q)).filter(ok);if(!sugPool.length&&cur.chT&&cur.chT!==q)sugPool=(await searchVideos(cur.chT)).filter(ok)}
+      if(sugPool.length)pick=sugPool.shift();
+    }
+    if(!pick){toast('Aucune nouvelle vidéo trouvée');return}
+    const v=itemFrom(pick);v.sug=1;
     hist.push(idx);list.splice(idx+1,0,v);idx=idx+1;save();render();play();
     toast('Suite : '+v.title);
   }catch(e){toast(errMsg(e))}
@@ -511,7 +522,7 @@ if('mediaSession' in navigator){const ms=navigator.mediaSession;
 }
 au.addEventListener('playing',()=>setPlaying(true));
 au.addEventListener('pause',()=>{setPlaying(false);if(document.hidden)tryResume()});
-au.addEventListener('ended',()=>{const v=list[idx];if(v)markHeard(v.id);next()});
+au.addEventListener('ended',()=>{endHeard(au.duration);next()});
 au.addEventListener('error',()=>{if(engine==='audio'&&au.src){goodApi=null;apis=[];au.removeAttribute('src');setMode('yt');if(ytReady&&list[idx])yt.loadVideoById(list[idx].id)}});
 au.addEventListener('timeupdate',()=>{if(au.duration){checkHeard(au.currentTime,au.duration);$('#bar div').style.width=(au.currentTime/au.duration*100)+'%';
   try{navigator.mediaSession.setPositionState({duration:au.duration,position:au.currentTime,playbackRate:1})}catch(e){}}});
@@ -525,7 +536,7 @@ window.onYouTubeIframeAPIReady=()=>{
   yt=new YT.Player('player',{host:'https://www.youtube-nocookie.com',playerVars:{playsinline:1,rel:0},
     events:{onReady:()=>{ytReady=true;if(engine==='yt'&&list[idx])yt.loadVideoById(list[idx].id)},
       onStateChange:e=>{if(engine!=='yt')return;setPlaying(e.data===YT.PlayerState.PLAYING);
-        if(e.data===YT.PlayerState.ENDED){const v=list[idx];if(v)markHeard(v.id);next()}
+        if(e.data===YT.PlayerState.ENDED){endHeard(yt.getDuration());next()}
         if(e.data===YT.PlayerState.PAUSED&&document.hidden)tryResume()}}});
   setInterval(()=>{if(engine==='yt'&&ytReady&&yt.getDuration){const d=yt.getDuration();if(d){if(playing)checkHeard(yt.getCurrentTime(),d);$('#bar div').style.width=(yt.getCurrentTime()/d*100)+'%'}}},1000);
 };
