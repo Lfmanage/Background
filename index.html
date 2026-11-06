@@ -309,8 +309,8 @@ header p{font-size:9px;letter-spacing:1.2px;margin-top:0}
     <div class="big"><button type="button" id="hideBtn" hidden>Masquer une période…</button></div>
     <div id="hideForm" hidden><div class="lab">Du … au … (inclus) :</div><div class="qrow"><input type="date" id="hFrom" aria-label="Du"><input type="date" id="hTo" aria-label="Au"></div><div class="big"><button type="button" class="p" id="hSave">Enregistrer</button><button type="button" id="hOff">Retirer</button></div></div>
     <div id="nxChBtns" hidden>
-      <div class="lab">Tout lire de cette chaîne (jusqu'à 1 000 vidéos), dans l'ordre :</div>
-      <div class="big"><button type="button" class="p" id="chNew">Récentes d'abord</button><button type="button" id="chOld">Anciennes d'abord</button><button type="button" id="chRand">Aléatoire</button></div>
+      <div class="lab">Afficher les vidéos de cette chaîne :</div>
+      <div class="big"><button type="button" class="p" id="chNew">Plus récentes</button><button type="button" id="chOld">Plus anciennes</button><button type="button" id="chRand">Aléatoire</button></div>
       <div class="lab" id="nxProg"></div>
     </div>
     <div class="lab">Dernières vidéos de la chaîne :</div>
@@ -334,7 +334,7 @@ header p{font-size:9px;letter-spacing:1.2px;margin-top:0}
   <div class="lab" id="hCount"></div><div class="big"><button type="button" id="hClear">Effacer l'historique d'écoute</button></div>
   <div class="big"><button type="button" id="undoBtn">Revenir à ma liste d'avant</button></div>
   <div class="big"><button type="button" id="cleanBtn">Nettoyer ma liste (écoutées et masquées)</button></div>
-  <div class="lab" id="ver">Version 22</div>
+  <div class="lab" id="ver">Version 23</div>
   <div class="steps">La clé sert à la recherche, aux vidéos d'une même chaîne et aux titres. Elle reste dans ton iPhone, elle n'est jamais mise en ligne.<br><br><b>Pour l'obtenir :</b> console.cloud.google.com → nouveau projet → « API et services » → activer « YouTube Data API v3 » → Identifiants → Créer une clé API. Restreins-la au site <b>https://lfmanage.github.io/*</b> et à l'API YouTube Data v3.</div>
 </div></section>
 
@@ -773,7 +773,7 @@ $('#sq').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$
 $('#sclr').onclick=()=>{$('#sq').value='';$('#sugs').textContent='';$('#sq').focus()};
 
 /* « Et ensuite ? » : même artiste / cette chaîne */
-let nx={vid:null,artistQ:'',chan:null,chOv:null,favSrc:null};
+let nx={chOrder:'new',chItems:[],chDone:false,chApply:null,vid:null,artistQ:'',chan:null,chOv:null,favSrc:null};
 /* 5 dernières chaînes regardées */
 const LS_C='bg_chans_v1';let chans=[];
 try{chans=JSON.parse(localStorage.getItem(LS_C)||'[]');if(!Array.isArray(chans))chans=[]}catch(e){chans=[]}
@@ -885,7 +885,7 @@ async function loadChan(){
   }
   $('#nxChName').textContent=src.name||'Cette chaîne';$('#nxChBtns').hidden=false;nx.favSrc=src;updateFavBtn();updateHideInfo();
   if(nx.chan&&nx.chan.id===src.id)return;
-  nx.chan={id:src.id};setMsg(box,'Chargement…');
+  nx.chan={id:src.id};nx.chItems=[];nx.chDone=false;nx.chApply=null;nx.chOrder='new';[['new','#chNew'],['old','#chOld'],['rand','#chRand']].forEach(([k,s])=>$(s).classList.toggle('p',k==='new'));setMsg(box,'Chargement…');
   /* aperçu illimité, sans les vidéos déjà écoutées (70 %) */
   const chId=src.id;let n=0,shown=0,hidden=0,masked=0,tok=null,total=0,pages=0;const rule=hideRule(src.id,src.name);
   const cnt=document.createElement('div');cnt.className='lab';cnt.id='nxCnt';
@@ -897,32 +897,28 @@ async function loadChan(){
       if(pages===0){box.textContent='';if(!p.items.length){setMsg(box,"Cette chaîne n'a pas de vidéos publiques.");return}box.appendChild(cnt)}
       tok=p.next;pages++;if(p.total)total=p.total;
       const fr=document.createDocumentFragment();
-      p.items.forEach(x=>{n++;if(heard.has(x.id)){hidden++;return}if(hiddenByRule(x,rule)){masked++;return}shown++;fr.appendChild(resCard(x,shown))});
-      box.appendChild(fr);cnt.textContent=txt(!!tok);
+      p.items.forEach(x=>{n++;if(heard.has(x.id)){hidden++;return}if(hiddenByRule(x,rule)){masked++;return}shown++;nx.chItems.push(x);if(nx.chOrder==='new')fr.appendChild(resCard(x,shown))});
+      if(nx.chOrder==='new')box.appendChild(fr);else{cnt.textContent=txt(true)}cnt.textContent=txt(!!tok);
     }while(tok&&pages<400);
+    nx.chDone=true;
+    nx.chApply=()=>{
+      let a=nx.chItems.slice();if(nx.chOrder==='old')a.reverse();else if(nx.chOrder==='rand')shuffleArr(a);
+      box.textContent='';box.appendChild(cnt);const fr=document.createDocumentFragment();a.forEach((x,k)=>fr.appendChild(resCard(x,k+1)));box.appendChild(fr)};
+    nx.chApply();
     cnt.textContent=txt(false);
     if(!shown)cnt.textContent='Plus rien à afficher : tout est écouté ou dans la période masquée ('+(hidden+masked)+').';
   }catch(e){if(!n){nx.chan=null;setMsg(box,errMsg(e),reloadChan)}else cnt.textContent=txt(false)+' (chargement interrompu : '+errMsg(e)+')'}
 }
-async function playChannel(order){
-  const chId=nx.chan&&nx.chan.id;if(!chId)return;
-  if(!confirm("Remplacer ta liste actuelle par les vidéos de cette chaîne (jusqu'à 1 000) ?\n\nTu pourras revenir en arrière avec « Revenir à ma liste d'avant » dans les réglages."))return;
-  const st=$('#nxProg');const btns=$('#nxChBtns').querySelectorAll('button');
-  btns.forEach(b=>b.disabled=true);st.textContent='Chargement…';
-  try{
-    const fs=nx.favSrc,rule=fs?hideRule(fs.id,fs.name):null;
-    const r=await channelAll(chId,(n,t)=>{st.textContent='Chargement… '+n+(t?' sur '+t:'')+' vidéos'},x=>heard.has(x.id)||hiddenByRule(x,rule));
-    const all=r.items;
-    if(!all.length){st.textContent=r.skipped?'Plus rien à lire : tout est écouté ou dans la période masquée.':'Aucune vidéo trouvée.';return}
-    if(order==='old')all.reverse();else if(order==='rand')shuffleArr(all);
-    st.textContent='';replaceList(all,r.skipped,r.total,r.partial);
-  }catch(e){st.textContent=errMsg(e)}
-  finally{btns.forEach(b=>b.disabled=false)}
+function setChanOrder(o){
+  nx.chOrder=o;
+  [['new','#chNew'],['old','#chOld'],['rand','#chRand']].forEach(([k,s])=>$(s).classList.toggle('p',k===o));
+  if(nx.chDone&&nx.chApply){nx.chApply();$('#nxChRes').scrollTop=0}
+  else if(nx.chItems&&nx.chItems.length&&!nx.chDone){/* le rendu final appliquera l'ordre */const c=$('#nxCnt');if(c&&o!=='new'){$('#nxChRes').querySelectorAll('.res').forEach(e=>e.remove())}}
 }
 document.querySelectorAll('#vNext .tabs button').forEach(b=>b.onclick=()=>setTab(b.dataset.t));
 $('#nxGo').onclick=runArtist;
 $('#nxQ').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$('#nxQ').blur();runArtist()}});
-$('#chNew').onclick=()=>playChannel('new');$('#chOld').onclick=()=>playChannel('old');$('#chRand').onclick=()=>playChannel('rand');
+$('#chNew').onclick=()=>setChanOrder('new');$('#chOld').onclick=()=>setChanOrder('old');$('#chRand').onclick=()=>setChanOrder('rand');
 
 /* réglages : clé YouTube */
 function heardInfo(){$('#hCount').textContent=heard.size+' vidéo'+(heard.size>1?'s':'')+' déjà écoutée'+(heard.size>1?'s':'')+' : elles ne repassent plus toutes seules.';$('#hClear').textContent="Effacer l'historique d'écoute"}
