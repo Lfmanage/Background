@@ -227,6 +227,8 @@ header p{font-size:9px;letter-spacing:1.2px;margin-top:0}
 #stage{border-radius:6px}
 .ph{font-size:10px}
 [hidden]{display:none!important}
+
+.res{touch-action:pan-y}
 </style>
 </head>
 <body>
@@ -313,7 +315,7 @@ header p{font-size:9px;letter-spacing:1.2px;margin-top:0}
       <div class="big"><button type="button" class="p" id="chNew">Plus récentes</button><button type="button" id="chOld">Plus anciennes</button><button type="button" id="chRand">Aléatoire</button></div>
       <div class="lab" id="nxProg"></div>
     </div>
-    <div class="lab">Dernières vidéos de la chaîne :</div>
+    <div class="lab">Dernières vidéos de la chaîne (glisse vers la gauche pour masquer une vidéo déjà écoutée) :</div>
     <div id="nxChRes" style="margin-top:8px"></div>
   </div>
 </div></section>
@@ -335,7 +337,7 @@ header p{font-size:9px;letter-spacing:1.2px;margin-top:0}
   <div class="big"><button type="button" id="clearListBtn">Supprimer toute ma liste</button></div>
   <div class="big"><button type="button" id="undoBtn">Revenir à ma liste d'avant</button></div>
   <div class="big"><button type="button" id="cleanBtn">Nettoyer ma liste (écoutées et masquées)</button></div>
-  <div class="lab" id="ver">Version 26</div>
+  <div class="lab" id="ver">Version 27</div>
   <div class="steps">La clé sert à la recherche, aux vidéos d'une même chaîne et aux titres. Elle reste dans ton iPhone, elle n'est jamais mise en ligne.<br><br><b>Pour l'obtenir :</b> console.cloud.google.com → nouveau projet → « API et services » → activer « YouTube Data API v3 » → Identifiants → Créer une clé API. Restreins-la au site <b>https://lfmanage.github.io/*</b> et à l'API YouTube Data v3.</div>
 </div></section>
 
@@ -760,7 +762,23 @@ function resCard(v,n){
   bp.onclick=e=>{e.stopPropagation();addItem(v,{playNow:true});closeViews()};
   const ba=document.createElement('button');ba.type='button';ba.className='rb';ba.setAttribute('aria-label','Ajouter à ma liste');ba.innerHTML=svgI('<path d="M12 5v14M5 12h14"/>',false);
   ba.onclick=e=>{e.stopPropagation();addItem(v)};
-  ac.append(bp,ba);d.append(th,tx,ac);return d;
+  ac.append(bp,ba);d.append(th,tx,ac);
+  /* glisser vers la gauche = marquer comme écoutée (masquée) */
+  let sx=0,sy=0,dx=0,drag=false,locked=false,moved=false;
+  d.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY;dx=0;drag=true;locked=false;moved=false;d.style.transition='none'},{passive:true});
+  d.addEventListener('touchmove',e=>{if(!drag)return;const t=e.touches[0];const x=t.clientX-sx,y=t.clientY-sy;
+    if(!locked){if(Math.abs(y)>12&&Math.abs(y)>Math.abs(x)){drag=false;d.style.transform='';return}if(Math.abs(x)>10)locked=true;else return}
+    dx=Math.min(0,x);moved=true;d.style.transform='translateX('+dx+'px)';d.style.opacity=String(Math.max(.35,1+dx/260))},{passive:true});
+  const end=()=>{if(!drag&&!moved)return;drag=false;d.style.transition='transform .2s,opacity .2s';
+    if(dx<-90){d.style.transform='translateX(-110%)';d.style.opacity='0';
+      setTimeout(()=>{d.style.display='none';d.style.transform='';d.style.opacity=''},200);
+      const had=heard.has(v.id);markHeard(v.id);
+      toast('Vidéo masquée (marquée écoutée)','Annuler',()=>{if(!had){heard.delete(v.id);saveHeard();render()}d.style.display='';d.classList.remove('heard')})}
+    else{d.style.transform='';d.style.opacity=''}
+    if(moved)setTimeout(()=>{moved=false},350)};
+  d.addEventListener('touchend',end);d.addEventListener('touchcancel',end);
+  const oc=d.onclick;d.onclick=e=>{if(moved)return;oc(e)};
+  return d;
 }
 function showResults(box,items,empty){box.textContent='';if(!items.length){setMsg(box,empty);return}
   const fr=document.createDocumentFragment();items.forEach((v,k)=>fr.appendChild(resCard(v,k+1)));box.appendChild(fr)}
