@@ -335,7 +335,7 @@ header p{font-size:9px;letter-spacing:1.2px;margin-top:0}
   <div class="big"><button type="button" id="clearListBtn">Supprimer toute ma liste</button></div>
   <div class="big"><button type="button" id="undoBtn">Revenir à ma liste d'avant</button></div>
   <div class="big"><button type="button" id="cleanBtn">Nettoyer ma liste (écoutées et masquées)</button></div>
-  <div class="lab" id="ver">Version 24</div>
+  <div class="lab" id="ver">Version 25</div>
   <div class="steps">La clé sert à la recherche, aux vidéos d'une même chaîne et aux titres. Elle reste dans ton iPhone, elle n'est jamais mise en ligne.<br><br><b>Pour l'obtenir :</b> console.cloud.google.com → nouveau projet → « API et services » → activer « YouTube Data API v3 » → Identifiants → Créer une clé API. Restreins-la au site <b>https://lfmanage.github.io/*</b> et à l'API YouTube Data v3.</div>
 </div></section>
 
@@ -414,6 +414,7 @@ async function yapi(path,params){
 }
 function errMsg(e){const r=e&&e.reason;
   if(r==='nokey')return "Ajoute ta clé YouTube dans les réglages (icône en haut à droite) pour utiliser la recherche.";
+  if(r==='keyless')return "Impossible d'afficher la chaîne sans clé pour le moment (les serveurs gratuits ne répondent pas). Ajoute ta clé dans les réglages, ou réessaie plus tard.";
   if(r==='quotaExceeded'||r==='dailyLimitExceeded')return "Le quota gratuit du jour est atteint. Il revient demain.";
   if(r==='keyInvalid'||r==='ipRefererBlocked'||r==='forbidden'||r==='accessNotConfigured'||/^http40[03]$/.test(r||''))return "La clé est refusée. Vérifie-la dans les réglages.";
   if(r==='net')return "Impossible de joindre YouTube"+(e&&e.detail?' ('+e.detail+')':'')+". Réessaie dans un instant.";
@@ -441,7 +442,36 @@ async function searchVideos(q,o){
   throw Object.assign(new Error('nokey'),{reason:'nokey'});
 }
 
+/* ===== sans clé : serveurs Piped publics (peuvent tomber en panne) ===== */
+async function keylessChannelId(videoId){
+  const l=await loadApis();
+  for(const a of l.slice(0,6)){
+    try{const r=await fetchT(a+'/streams/'+videoId,7000);if(!r.ok)continue;const j=await r.json();
+      const m=/\/channel\/(UC[\w-]{22})/.exec(j.uploaderUrl||'');if(m){goodApi=a;return{id:m[1],name:j.uploader||''}}}catch(e){}
+  }
+  return null;
+}
+async function keylessRss(chId){
+  const r=await fetchT('https://www.youtube.com/feeds/videos.xml?channel_id='+chId,7000);if(!r.ok)throw new Error('rss');
+  const d=new DOMParser().parseFromString(await r.text(),'text/xml');
+  return [...d.querySelectorAll('entry')].map(e=>({id:(e.getElementsByTagName('yt:videoId')[0]||{}).textContent||'',title:(e.querySelector('title')||{}).textContent||'',ch:chId,chT:((e.querySelector('author name')||{}).textContent)||'',pub:(e.querySelector('published')||{}).textContent||''})).filter(x=>x.id);
+}
+async function keylessPage(chId,token){
+  const map=s=>({id:(/watch\?v=([\w-]{11})/.exec(s.url||'')||[])[1],title:s.title||'',ch:chId,chT:s.uploaderName||'',pub:s.uploaded>0?new Date(s.uploaded).toISOString():'',dur:s.duration>0?secDur(s.duration):''});
+  if(!token){try{const it=await keylessRss(chId);if(it.length)return{items:it,next:null,total:it.length}}catch(e){}}
+  const t=token?JSON.parse(token):null;
+  const l=t?[t.a]:(await loadApis()).slice(0,6);
+  for(const a of l){
+    try{const u=t?a+'/nextpage/channel/'+chId+'?nextpage='+encodeURIComponent(t.t):a+'/channel/'+chId;
+      const r=await fetchT(u,9000);if(!r.ok)continue;const j=await r.json();
+      const items=(j.relatedStreams||[]).map(map).filter(x=>x.id);
+      if(!items.length&&!t)continue;
+      return{items,next:j.nextpage?JSON.stringify({a,t:j.nextpage}):null,total:0}}catch(e){}
+  }
+  throw Object.assign(new Error('keyless'),{reason:'keyless'});
+}
 async function channelPage(chId,token){
+  if(!API_KEY)return keylessPage(chId,token);
   const p={part:'snippet,contentDetails',playlistId:'UU'+chId.slice(2),maxResults:50};if(token)p.pageToken=token;
   const j=await yapi('/playlistItems',p);
   const items=(j.items||[]).filter(i=>i.snippet&&i.snippet.resourceId&&i.snippet.resourceId.videoId&&i.snippet.title!=='Private video'&&i.snippet.title!=='Deleted video')
@@ -877,11 +907,11 @@ async function runArtist(){
 }
 async function loadChan(){
   const v=list[idx];const box=$('#nxChRes');
-  if(!API_KEY){$('#nxChBtns').hidden=true;$('#nxChName').textContent='';setMsg(box,errMsg({reason:'nokey'}));return}
   let src=nx.chOv;
   if(!src){
+    if(!API_KEY&&v&&!v.ch){setMsg(box,'Recherche de la chaîne…');const c=await keylessChannelId(v.id);if(c){v.ch=c.id;if(c.name)v.chT=c.name;save()}}
     if(v&&!v.ch)await enrich(v);
-    if(!v||!v.ch){$('#nxChBtns').hidden=true;setMsg(box,"Chaîne introuvable pour cette vidéo.");return}
+    if(!v||!v.ch){$('#nxChBtns').hidden=true;setMsg(box,API_KEY?"Chaîne introuvable pour cette vidéo.":errMsg({reason:'keyless'}),API_KEY?null:()=>loadChan());return}
     src={id:v.ch,name:v.chT};
   }
   $('#nxChName').textContent=src.name||'Cette chaîne';$('#nxChBtns').hidden=false;nx.favSrc=src;updateFavBtn();updateHideInfo();
